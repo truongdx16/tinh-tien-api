@@ -1,0 +1,16 @@
+server:
+  addr: ":8080"
+  read_timeout: 15s
+  write_timeout: 15s
+
+database:
+  dsn: "tinh_tien:tinh_tien@tcp(localhost:3306)/tinh_tien?charset=utf8mb4&parseTime=True&loc=Local"
+
+auth:
+  jwt_secret: "change-me-in-production"
+  token_ttl: 24h
+
+shop:
+  name: "Hộ kinh doanh nông sản"
+  phone: ""
+  currency: "VND"

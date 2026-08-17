@@ -1,0 +1,560 @@
+openapi: 3.0.3
+info:
+  title: Tinh Tien API
+  description: |
+    Household farm business management API.
+
+    ## How to use
+    1. Open Swagger UI at `/docs`
+    2. Call `POST /v1/auth/login` to get a JWT
+    3. Click **Authorize**, paste `Bearer <token>`
+    4. Try other endpoints
+
+    Spec file: `/openapi.yaml`
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: auth
+  - name: catalog
+  - name: customers
+  - name: orders
+  - name: inventory
+  - name: crop
+  - name: reports
+  - name: expenses
+  - name: settings
+
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      tags: [auth]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /v1/auth/login:
+    post:
+      summary: Staff login
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            example:
+              username: owner
+              password: owner123
+      responses:
+        "200":
+          description: JWT token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/products:
+    get:
+      summary: List products
+      tags: [catalog]
+      parameters:
+        - $ref: "#/components/parameters/search"
+        - name: category_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: active
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create product
+      tags: [catalog]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductRequest"
+            example:
+              name: Rau muống
+              unit: kg
+              sell_price: 20000
+              cost_price: 8000
+              active: true
+      responses:
+        "201":
+          description: Created
+
+  /v1/categories:
+    get:
+      summary: List categories
+      tags: [catalog]
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create category
+      tags: [catalog]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        "201":
+          description: Created
+
+  /v1/customers:
+    get:
+      summary: List customers
+      tags: [customers]
+      parameters:
+        - $ref: "#/components/parameters/search"
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create customer
+      tags: [customers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCustomerRequest"
+      responses:
+        "201":
+          description: Created
+
+  /v1/orders:
+    get:
+      summary: List orders
+      tags: [orders]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, confirmed, packed, delivered, cancelled]
+        - name: customer_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create order
+      tags: [orders]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Created
+
+  /v1/orders/{id}:
+    get:
+      summary: Get order by ID
+      tags: [orders]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: OK
+
+  /v1/orders/{id}/status:
+    patch:
+      summary: Update order status
+      tags: [orders]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [draft, confirmed, packed, delivered, cancelled]
+      responses:
+        "200":
+          description: OK
+
+  /v1/orders/{id}/payments:
+    post:
+      summary: Add payment to order
+      tags: [orders]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentRequest"
+      responses:
+        "200":
+          description: OK
+
+  /v1/inventory:
+    get:
+      summary: List inventory balances
+      tags: [inventory]
+      parameters:
+        - name: low_stock_threshold
+          in: query
+          schema: { type: number }
+      responses:
+        "200":
+          description: OK
+
+  /v1/inventory/adjustments:
+    post:
+      summary: Adjust inventory quantity
+      tags: [inventory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, quantity]
+              properties:
+                product_id: { type: string, format: uuid }
+                quantity: { type: number }
+                note: { type: string }
+      responses:
+        "201":
+          description: Created
+
+  /v1/plots:
+    get:
+      summary: List plots
+      tags: [crop]
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create plot
+      tags: [crop]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                location: { type: string }
+                area_sq_m: { type: number }
+      responses:
+        "201":
+          description: Created
+
+  /v1/crop-batches:
+    get:
+      summary: List crop batches
+      tags: [crop]
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create crop batch
+      tags: [crop]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plot_id, crop_name, planted_at]
+              properties:
+                plot_id: { type: string, format: uuid }
+                product_id: { type: string, format: uuid }
+                crop_name: { type: string }
+                planted_at: { type: string, example: "2026-08-01" }
+                expected_harvest: { type: string, example: "2026-08-20" }
+      responses:
+        "201":
+          description: Created
+
+  /v1/crop-batches/{id}/harvests:
+    post:
+      summary: Record harvest (adds stock)
+      tags: [crop]
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, quantity, harvested_at]
+              properties:
+                product_id: { type: string, format: uuid }
+                quantity: { type: number }
+                harvested_at: { type: string, example: "2026-08-17" }
+      responses:
+        "201":
+          description: Created
+
+  /v1/reports/sales:
+    get:
+      summary: Sales report
+      tags: [reports]
+      parameters:
+        - name: group_by
+          in: query
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: day
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: OK
+
+  /v1/reports/receivables:
+    get:
+      summary: Open receivables (công nợ)
+      tags: [reports]
+      responses:
+        "200":
+          description: OK
+
+  /v1/reports/low-stock:
+    get:
+      summary: Low stock alert
+      tags: [reports]
+      parameters:
+        - name: threshold
+          in: query
+          schema: { type: number, default: 5 }
+      responses:
+        "200":
+          description: OK
+
+  /v1/expenses:
+    get:
+      summary: List expenses
+      tags: [expenses]
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create expense
+      tags: [expenses]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, description]
+              properties:
+                category:
+                  type: string
+                  enum: [seed, fertilizer, fuel, labor, other]
+                amount: { type: integer, description: VND đồng }
+                description: { type: string }
+                expense_date: { type: string, example: "2026-08-17" }
+      responses:
+        "201":
+          description: Created
+
+  /v1/settings:
+    get:
+      summary: Get shop settings
+      tags: [settings]
+      responses:
+        "200":
+          description: OK
+    put:
+      summary: Update shop settings
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                phone: { type: string }
+                currency: { type: string, example: VND }
+      responses:
+        "200":
+          description: OK
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Paste JWT from POST /v1/auth/login (without the Bearer prefix)
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    search:
+      name: search
+      in: query
+      schema: { type: string }
+    page:
+      name: page
+      in: query
+      schema: { type: integer, default: 1 }
+    page_size:
+      name: page_size
+      in: query
+      schema: { type: integer, default: 20, maximum: 100 }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponse"
+
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+        data: { nullable: true }
+        error: { nullable: true }
+        pagination:
+          nullable: true
+          type: object
+          properties:
+            page: { type: integer }
+            page_size: { type: integer }
+            total: { type: integer, format: int64 }
+            total_pages: { type: integer }
+
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+
+    LoginResponse:
+      type: object
+      properties:
+        token: { type: string }
+        expires_in: { type: integer }
+        user:
+          type: object
+          properties:
+            id: { type: string }
+            username: { type: string }
+            full_name: { type: string }
+            role: { type: string, enum: [owner, staff] }
+
+    CreateProductRequest:
+      type: object
+      required: [name, unit, sell_price]
+      properties:
+        category_id: { type: string, format: uuid }
+        name: { type: string }
+        unit: { type: string, example: kg }
+        sell_price: { type: integer, description: VND đồng }
+        cost_price: { type: integer }
+        description: { type: string }
+        crop_type: { type: string }
+        seasonal: { type: boolean }
+        active: { type: boolean }
+
+    CreateCustomerRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        address: { type: string }
+        notes: { type: string }
+
+    CreateOrderRequest:
+      type: object
+      required: [items]
+      properties:
+        customer_id: { type: string, format: uuid }
+        fulfillment_type:
+          type: string
+          enum: [pickup, delivery]
+        delivery_address: { type: string }
+        note: { type: string }
+        allow_backorder: { type: boolean }
+        status:
+          type: string
+          enum: [draft, confirmed]
+        items:
+          type: array
+          items:
+            type: object
+            required: [product_id, quantity]
+            properties:
+              product_id: { type: string, format: uuid }
+              quantity: { type: number }
+              unit_price: { type: integer }
+
+    CreatePaymentRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount: { type: integer, description: VND đồng }
+        method:
+          type: string
+          enum: [cash, bank_transfer, cod]
+        note: { type: string }
+
+security:
+  - bearerAuth: []

@@ -1,0 +1,13 @@
+bin/
+*.exe
+clients/
+*.test
+*.out
+.env
+.env.*
+!.env.example
+vendor/
+.idea/
+.vscode/
+*.log
+.DS_Store
