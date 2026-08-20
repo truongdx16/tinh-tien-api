@@ -1,18 +1,22 @@
 package customer
 
 type CreateCustomerRequest struct {
-	Name    string `json:"name"`
-	Phone   string `json:"phone"`
-	Address string `json:"address"`
-	Notes   string `json:"notes"`
+	Code     string `json:"code"`
+	Name     string `json:"name"`
+	Phone    string `json:"phone"`
+	Address  string `json:"address"`
+	Notes    string `json:"notes"`
+	IsWalkIn bool   `json:"is_walk_in"`
 }
 
 type UpdateCustomerRequest struct {
-	Name    *string `json:"name"`
-	Phone   *string `json:"phone"`
-	Address *string `json:"address"`
-	Notes   *string `json:"notes"`
-	Active  *bool   `json:"active"`
+	Code     *string `json:"code"`
+	Name     *string `json:"name"`
+	Phone    *string `json:"phone"`
+	Address  *string `json:"address"`
+	Notes    *string `json:"notes"`
+	Active   *bool   `json:"active"`
+	IsWalkIn *bool   `json:"is_walk_in"`
 }
 
 type ListQuery struct {

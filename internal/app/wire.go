@@ -5,11 +5,15 @@ import (
 	"tinh-tien-api/internal/domain/crop"
 	"tinh-tien-api/internal/domain/customer"
 	"tinh-tien-api/internal/domain/expense"
+	"tinh-tien-api/internal/domain/feedback"
 	"tinh-tien-api/internal/domain/inventory"
+	"tinh-tien-api/internal/domain/media"
 	"tinh-tien-api/internal/domain/order"
+	"tinh-tien-api/internal/domain/planting"
 	"tinh-tien-api/internal/domain/product"
 	"tinh-tien-api/internal/domain/report"
 	"tinh-tien-api/internal/domain/settings"
+	"tinh-tien-api/internal/mobile"
 	"tinh-tien-api/internal/pkg/config"
 	"gorm.io/gorm"
 )
@@ -51,6 +55,18 @@ func BuildHandlers(db *gorm.DB, cfg *config.Config) Handlers {
 	reportSvc := report.NewService(reportRepo, expenseSvc, invSvc, orderSvc)
 	reportHandler := report.NewHandler(reportSvc)
 
+	plantingRepo := planting.NewRepository(db)
+	plantingSvc := planting.NewService(plantingRepo)
+
+	mediaRepo := media.NewRepository(db)
+	mediaSvc := media.NewService(mediaRepo)
+
+	feedbackRepo := feedback.NewRepository(db)
+	feedbackSvc := feedback.NewService(feedbackRepo)
+
+	baseURL := "http://localhost" + cfg.Server.Addr
+	uploadDir := "uploads"
+
 	return Handlers{
 		Auth:      authHandler,
 		Product:   productHandler,
@@ -62,5 +78,15 @@ func BuildHandlers(db *gorm.DB, cfg *config.Config) Handlers {
 		Report:    reportHandler,
 		Settings:  settingsHandler,
 		AuthSvc:   authSvc,
+		Mobile: MobileHandlers{
+			Auth:     mobile.NewAuthMobileHandler(authSvc),
+			Catalog:  mobile.NewCatalogMobileHandler(productSvc),
+			Customer: mobile.NewCustomerMobileHandler(customerSvc),
+			Order:    mobile.NewOrderMobileHandler(orderSvc),
+			Planting: mobile.NewPlantingMobileHandler(plantingSvc),
+			Media:    mobile.NewMediaMobileHandler(mediaSvc, baseURL, uploadDir),
+			Stats:    mobile.NewStatsMobileHandler(reportSvc),
+			Feedback: mobile.NewFeedbackMobileHandler(feedbackSvc),
+		},
 	}
 }

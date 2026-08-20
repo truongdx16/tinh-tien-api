@@ -15,6 +15,7 @@ import (
 	"tinh-tien-api/internal/domain/product"
 	"tinh-tien-api/internal/domain/report"
 	"tinh-tien-api/internal/domain/settings"
+	"tinh-tien-api/internal/mobile"
 	"tinh-tien-api/internal/pkg/httputil"
 )
 
@@ -29,6 +30,18 @@ type Handlers struct {
 	Report   *report.Handler
 	Settings *settings.Handler
 	AuthSvc  *auth.Service
+	Mobile   MobileHandlers
+}
+
+type MobileHandlers struct {
+	Auth     *mobile.AuthMobileHandler
+	Catalog  *mobile.CatalogMobileHandler
+	Customer *mobile.CustomerMobileHandler
+	Order    *mobile.OrderMobileHandler
+	Planting *mobile.PlantingMobileHandler
+	Media    *mobile.MediaMobileHandler
+	Stats    *mobile.StatsMobileHandler
+	Feedback *mobile.FeedbackMobileHandler
 }
 
 func NewRouter(h Handlers) http.Handler {
@@ -51,6 +64,80 @@ func NewRouter(h Handlers) http.Handler {
 	r.Get("/openapi.yaml", OpenAPIHandler(specPath))
 	r.Get("/docs", DocsHandler())
 
+	// Serve uploaded files
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
+
+	// ---- /api/v1  Flutter mobile contract ----
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Post("/auth/login", h.Mobile.Auth.Login)
+
+		r.Group(func(r chi.Router) {
+			r.Use(auth.AuthMiddleware(h.AuthSvc))
+
+			r.Post("/auth/logout", h.Mobile.Auth.Logout)
+			r.Get("/auth/me", h.Mobile.Auth.Me)
+			r.Get("/users", h.Mobile.Auth.ListUsers)
+
+			r.Route("/categories", func(r chi.Router) {
+				r.Get("/", h.Mobile.Catalog.ListCategories)
+				r.Post("/", h.Mobile.Catalog.CreateCategory)
+				r.Put("/{id}", h.Mobile.Catalog.UpdateCategory)
+			})
+
+			r.Route("/units", func(r chi.Router) {
+				r.Get("/", h.Mobile.Catalog.ListUnits)
+				r.Post("/", h.Mobile.Catalog.CreateUnit)
+				r.Put("/{id}", h.Mobile.Catalog.UpdateUnit)
+			})
+
+			r.Route("/products", func(r chi.Router) {
+				r.Get("/", h.Mobile.Catalog.ListProducts)
+				r.Post("/", h.Mobile.Catalog.CreateProduct)
+				r.Get("/{id}", h.Mobile.Catalog.GetProduct)
+				r.Put("/{id}", h.Mobile.Catalog.UpdateProduct)
+				r.Delete("/{id}", h.Mobile.Catalog.DeleteProduct)
+			})
+
+			r.Route("/customers", func(r chi.Router) {
+				r.Get("/", h.Mobile.Customer.List)
+				r.Post("/", h.Mobile.Customer.Create)
+				r.Put("/{id}", h.Mobile.Customer.Update)
+			})
+
+			r.Route("/orders", func(r chi.Router) {
+				r.Get("/", h.Mobile.Order.List)
+				r.Post("/", h.Mobile.Order.Create)
+				r.Get("/{id}", h.Mobile.Order.Get)
+				r.Patch("/{id}/cancel", h.Mobile.Order.Cancel)
+			})
+
+			r.Route("/planting-schedules", func(r chi.Router) {
+				r.Get("/", h.Mobile.Planting.List)
+				r.Post("/", h.Mobile.Planting.Create)
+				r.Get("/{id}", h.Mobile.Planting.Get)
+				r.Put("/{id}", h.Mobile.Planting.Update)
+				r.Delete("/{id}", h.Mobile.Planting.Delete)
+			})
+
+			r.Route("/media", func(r chi.Router) {
+				r.Get("/", h.Mobile.Media.List)
+				r.Post("/upload", h.Mobile.Media.Upload)
+			})
+
+			r.Route("/stats", func(r chi.Router) {
+				r.Get("/revenue", h.Mobile.Stats.Revenue)
+				r.Get("/products", h.Mobile.Stats.TopProducts)
+				r.Get("/customers", h.Mobile.Stats.Customers)
+			})
+
+			r.Route("/feedback", func(r chi.Router) {
+				r.Get("/", h.Mobile.Feedback.List)
+				r.Post("/", h.Mobile.Feedback.Create)
+			})
+		})
+	})
+
+	// ---- /v1  existing admin/web routes ----
 	r.Route("/v1", func(r chi.Router) {
 		r.Post("/auth/login", h.Auth.Login)
 

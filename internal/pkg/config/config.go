@@ -66,7 +66,7 @@ func (c *Config) applyEnvOverrides() {
 
 func (c *Config) setDefaults() {
 	if c.Server.Addr == "" {
-		c.Server.Addr = ":8080"
+		c.Server.Addr = ":2170"
 	}
 	if c.Server.ReadTimeout == 0 {
 		c.Server.ReadTimeout = 15 * time.Second

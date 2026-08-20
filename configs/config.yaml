@@ -1,10 +1,11 @@
 server:
-  addr: ":8080"
+  addr: ":2170"
   read_timeout: 15s
   write_timeout: 15s
 
 database:
-  dsn: "tinh_tien:tinh_tien@tcp(localhost:3306)/tinh_tien?charset=utf8mb4&parseTime=True&loc=Local"
+  # Host port 2171 (21 + kênh 7) → MariaDB container 3306
+  dsn: "tinh_tien:tinh_tien@tcp(localhost:2171)/tinh_tien?charset=utf8mb4&parseTime=True&loc=Local"
 
 auth:
   jwt_secret: "change-me-in-production"

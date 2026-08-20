@@ -13,7 +13,7 @@ info:
     Spec file: `/openapi.yaml`
   version: 1.0.0
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:2170
     description: Local development
 
 tags:

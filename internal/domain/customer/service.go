@@ -40,6 +40,18 @@ func (r *Repository) Get(id string) (*Customer, error) {
 	return &c, nil
 }
 
+func (r *Repository) ensureWalkIn(svc *Service) error {
+	var c Customer
+	if err := r.db.Where("code = ?", "CUS-0001").Limit(1).Find(&c).Error; err != nil {
+		return err
+	}
+	if c.Name != "" {
+		return nil
+	}
+	_, err := svc.Create(CreateCustomerRequest{Code: "CUS-0001", Name: "Khách vãng lai", IsWalkIn: true})
+	return err
+}
+
 func (r *Repository) List(q ListQuery) ([]Customer, int64, error) {
 	query := r.db.Model(&Customer{})
 	if q.Search != "" {
@@ -76,11 +88,13 @@ func NewService(repo *Repository) *Service {
 
 func (s *Service) Create(req CreateCustomerRequest) (*Customer, error) {
 	c := &Customer{
-		Name:    req.Name,
-		Phone:   req.Phone,
-		Address: req.Address,
-		Notes:   req.Notes,
-		Active:  true,
+		Code:     req.Code,
+		Name:     req.Name,
+		Phone:    req.Phone,
+		Address:  req.Address,
+		Notes:    req.Notes,
+		Active:   true,
+		IsWalkIn: req.IsWalkIn,
 	}
 	return c, s.repo.Create(c)
 }
@@ -89,6 +103,9 @@ func (s *Service) Update(id string, req UpdateCustomerRequest) (*Customer, error
 	c, err := s.repo.Get(id)
 	if err != nil {
 		return nil, err
+	}
+	if req.Code != nil {
+		c.Code = *req.Code
 	}
 	if req.Name != nil {
 		c.Name = *req.Name
@@ -105,7 +122,17 @@ func (s *Service) Update(id string, req UpdateCustomerRequest) (*Customer, error
 	if req.Active != nil {
 		c.Active = *req.Active
 	}
+	if req.IsWalkIn != nil {
+		c.IsWalkIn = *req.IsWalkIn
+	}
 	return c, s.repo.Update(c)
+}
+
+func (s *Service) EnsureWalkIn() error {
+	if err := s.repo.ensureWalkIn(s); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Service) Delete(id string) error {

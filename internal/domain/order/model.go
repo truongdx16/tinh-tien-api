@@ -41,6 +41,7 @@ type Order struct {
 	DeliveryAddress string          `gorm:"size:512" json:"delivery_address"`
 	Note            string          `gorm:"size:1024" json:"note"`
 	AllowBackorder  bool            `gorm:"not null;default:false" json:"allow_backorder"`
+	Discount        int64           `gorm:"not null;default:0" json:"discount"`
 	Subtotal        int64           `gorm:"not null;default:0" json:"subtotal"`
 	Total           int64           `gorm:"not null;default:0" json:"total"`
 	PaidAmount      int64           `gorm:"not null;default:0" json:"paid_amount"`

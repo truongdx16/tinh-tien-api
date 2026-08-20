@@ -17,10 +17,10 @@ make run
 
 Open in browser:
 
-| URL                                | Purpose    |
-| ---------------------------------- | ---------- |
-| http://localhost:8080/docs         | Swagger UI |
-| http://localhost:8080/openapi.yaml | Raw spec   |
+| URL                                  | Purpose    |
+| ------------------------------------ | ---------- |
+| <http://localhost:2170/docs>         | Swagger UI |
+| <http://localhost:2170/openapi.yaml> | Raw spec   |
 
 ### Try an endpoint in Swagger UI
 
@@ -36,7 +36,7 @@ Open in browser:
 ## 2. Import into Postman / Insomnia
 
 1. **Import** → **Link** or **File**
-2. Choose `api/openapi.yaml` or `http://localhost:8080/openapi.yaml`
+2. Choose `api/openapi.yaml` or `http://localhost:2170/openapi.yaml`
 3. Set collection auth: **Bearer Token**
 4. Run login request first, set token on the collection
 
@@ -80,7 +80,7 @@ docker run --rm -v "$PWD:/local" openapitools/openapi-generator-cli generate \
 
 Common `-g` values: `typescript-axios`, `typescript-fetch`, `dart`, `kotlin`, `swift5`.
 
-Generated clients call the same URLs as the spec (`http://localhost:8080` by default). Change `servers` in the YAML for staging/production.
+Generated clients call the same URLs as the spec (`http://localhost:2170` by default). Change `servers` in the YAML for staging/production.
 
 ---
 

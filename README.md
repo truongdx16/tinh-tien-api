@@ -12,9 +12,9 @@ make seed       # dữ liệu mặc định (owner + settings)
 make run
 ```
 
-API: `http://localhost:8080`  
-Docs: `http://localhost:8080/docs` (Swagger UI)  
-Spec: `http://localhost:8080/openapi.yaml`  
+API: `http://localhost:2170`  
+Docs: `http://localhost:2170/docs` (Swagger UI)  
+Spec: `http://localhost:2170/openapi.yaml`  
 Health: `GET /healthz`  
 Login: `POST /v1/auth/login` with `{"username":"owner","password":"owner123"}`
 
@@ -38,11 +38,11 @@ Errors (including 404, 401, 403, 500) use the same shape with `success: false`.
 
 ## Database (MariaDB)
 
-See [docs/migrations.md](docs/migrations.md) for upgrading schema through code (versioned migrations).
+See [docs/migrations.md](docs/migrations.md) and [docs/ports.md](docs/ports.md).
 
 Docker Compose starts MariaDB 11 with:
 
-- Host: `localhost:3306`
+- Host: `localhost:2171` (map từ container `3306`)
 - Database: `tinh_tien`
 - User / password: `tinh_tien` / `tinh_tien`
 - Root password: `root`
@@ -50,7 +50,7 @@ Docker Compose starts MariaDB 11 with:
 Default DSN (see `configs/config.yaml`):
 
 ```txt
-tinh_tien:tinh_tien@tcp(localhost:3306)/tinh_tien?charset=utf8mb4&parseTime=True&loc=Local
+tinh_tien:tinh_tien@tcp(localhost:2171)/tinh_tien?charset=utf8mb4&parseTime=True&loc=Local
 ```
 
 ## Project layout

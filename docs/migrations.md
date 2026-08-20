@@ -23,10 +23,10 @@ Registry: [`internal/app/migrations/registry.go`](../internal/app/migrations/reg
 
 ## Lần đầu vs nâng cấp
 
-| Tình huống | Làm gì |
-|------------|--------|
+| Tình huống                    | Làm gì                                                              |
+| ----------------------------- | ------------------------------------------------------------------- |
 | **DB mới (dev/prod lần đầu)** | Chỉ cần `001_initial_schema` — AutoMigrate tạo đúng schema từ model |
-| **Đã có DB, đổi schema** | Thêm migration `002`, `003`, … — không sửa `001` |
+| **Đã có DB, đổi schema**      | Thêm migration `002`, `003`, … — không sửa `001`                    |
 
 Ví dụ model `settings` dùng cột `setting_key` ngay từ đầu (tránh reserved word `key` của MariaDB).
 
@@ -76,8 +76,8 @@ Hoặc xóa volume tương ứng trong Docker Desktop.
 
 ## Current migrations
 
-| ID | Mô tả |
-|----|--------|
+| ID                   | Mô tả                              |
+| -------------------- | ---------------------------------- |
 | `001_initial_schema` | CREATE tất cả bảng (fresh install) |
 
 ## Troubleshooting
