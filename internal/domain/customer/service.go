@@ -3,10 +3,15 @@ package customer
 import (
 	"errors"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 var ErrNotFound = errors.New("customer not found")
+
+// WalkInCode is the walk-in customer identifier used by the Flutter client
+// (Customer.id defaults to "CUS-0001" in the app).
+const WalkInCode = "CUS-0001"
 
 type Repository struct {
 	db *gorm.DB
@@ -38,6 +43,18 @@ func (r *Repository) Get(id string) (*Customer, error) {
 		return nil, err
 	}
 	return &c, nil
+}
+
+// FindIDByCode returns the UUID of the customer with the given code.
+func (r *Repository) FindIDByCode(code string) (string, error) {
+	var c Customer
+	if err := r.db.Where("code = ?", code).Order("created_at asc").Limit(1).Find(&c).Error; err != nil {
+		return "", err
+	}
+	if c.ID == uuid.Nil {
+		return "", ErrNotFound
+	}
+	return c.ID.String(), nil
 }
 
 func (r *Repository) ensureWalkIn(svc *Service) error {
@@ -126,6 +143,15 @@ func (s *Service) Update(id string, req UpdateCustomerRequest) (*Customer, error
 		c.IsWalkIn = *req.IsWalkIn
 	}
 	return c, s.repo.Update(c)
+}
+
+// ResolveID accepts either a customer UUID or a customer code (e.g. "CUS-0001")
+// and returns the UUID. Flutter sends "CUS-0001" for walk-in sales.
+func (s *Service) ResolveID(idOrCode string) (string, error) {
+	if _, err := uuid.Parse(idOrCode); err == nil {
+		return idOrCode, nil
+	}
+	return s.repo.FindIDByCode(idOrCode)
 }
 
 func (s *Service) EnsureWalkIn() error {

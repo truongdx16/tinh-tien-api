@@ -1,19 +1,32 @@
 package order
 
+import "time"
+
 type OrderItemRequest struct {
 	ProductID string  `json:"product_id"`
 	Quantity  float64 `json:"quantity"`
 	UnitPrice *int64  `json:"unit_price"`
 }
 
+// UpdateOrderRequest replaces the lines, discount and payment of an open order.
+type UpdateOrderRequest struct {
+	Items    []OrderItemRequest `json:"items"`
+	Discount int64              `json:"discount"`
+	// PaidAmount nil = paid in full.
+	PaidAmount *int64 `json:"paid_amount"`
+}
+
 type CreateOrderRequest struct {
-	CustomerID      *string             `json:"customer_id"`
-	FulfillmentType FulfillmentType     `json:"fulfillment_type"`
-	DeliveryAddress string              `json:"delivery_address"`
-	Note            string              `json:"note"`
-	AllowBackorder  bool                `json:"allow_backorder"`
-	Items           []OrderItemRequest  `json:"items"`
-	Status          Status              `json:"status"`
+	CustomerID      *string            `json:"customer_id"`
+	FulfillmentType FulfillmentType    `json:"fulfillment_type"`
+	DeliveryAddress string             `json:"delivery_address"`
+	Note            string             `json:"note"`
+	AllowBackorder  bool               `json:"allow_backorder"`
+	Items           []OrderItemRequest `json:"items"`
+	Status          Status             `json:"status"`
+	Discount        int64              `json:"discount"`
+	// PaidAmount nil = paid in full. Set when the customer pays partially (debt = total - paid).
+	PaidAmount *int64 `json:"paid_amount"`
 }
 
 type UpdateStatusRequest struct {
@@ -31,8 +44,11 @@ type ListQuery struct {
 	CustomerID string
 	From       *string
 	To         *string
-	Page       int
-	PageSize   int
+	// FromTime/ToTime (UTC, half-open [FromTime, ToTime)) take precedence over From/To.
+	FromTime *time.Time
+	ToTime   *time.Time
+	Page     int
+	PageSize int
 }
 
 type ReceivableItem struct {

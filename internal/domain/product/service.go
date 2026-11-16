@@ -132,7 +132,9 @@ func (r *Repository) SetProductCategories(productID string, categoryIDs []string
 func (r *Repository) ListProducts(q ProductListQuery) ([]Product, int64, error) {
 	query := r.db.Model(&Product{})
 	if q.CategoryID != "" {
-		query = query.Where("category_id = ?", q.CategoryID)
+		query = query.Where(
+			"products.category_id = ? OR products.id IN (SELECT product_id FROM product_categories WHERE category_id = ?)",
+			q.CategoryID, q.CategoryID)
 	}
 	if q.Active != nil {
 		query = query.Where("active = ?", *q.Active)
@@ -155,8 +157,66 @@ func (r *Repository) ListProducts(q ProductListQuery) ([]Product, int64, error) 
 	return items, total, err
 }
 
+// ProductMetrics are aggregates shown by the mobile app on each product.
+type ProductMetrics struct {
+	Quantity      float64 // stock (balances.quantity)
+	SalesQuantity float64 // SUM(order_items.quantity) of non-cancelled orders
+	Revenue       int64   // SUM(order_items.line_total) of non-cancelled orders
+}
+
+// Metrics returns stock and sales aggregates keyed by product id.
+// Table names are used directly to avoid an import cycle with order/inventory.
+func (r *Repository) Metrics(productIDs []string) (map[string]ProductMetrics, error) {
+	out := make(map[string]ProductMetrics, len(productIDs))
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+	type salesRow struct {
+		ProductID     string
+		SalesQuantity float64
+		Revenue       int64
+	}
+	var sales []salesRow
+	err := r.db.Table("order_items").
+		Select("order_items.product_id, COALESCE(SUM(order_items.quantity),0) AS sales_quantity, COALESCE(SUM(order_items.line_total),0) AS revenue").
+		Joins("JOIN orders ON orders.id = order_items.order_id AND orders.deleted_at IS NULL").
+		Where("order_items.deleted_at IS NULL AND orders.status NOT IN ? AND order_items.product_id IN ?",
+			[]string{"cancelled", "draft"}, productIDs).
+		Group("order_items.product_id").
+		Scan(&sales).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range sales {
+		m := out[s.ProductID]
+		m.SalesQuantity, m.Revenue = s.SalesQuantity, s.Revenue
+		out[s.ProductID] = m
+	}
+
+	type stockRow struct {
+		ProductID string
+		Quantity  float64
+	}
+	var stock []stockRow
+	if err := r.db.Table("balances").Select("product_id, quantity").
+		Where("deleted_at IS NULL AND product_id IN ?", productIDs).
+		Scan(&stock).Error; err != nil {
+		return nil, err
+	}
+	for _, s := range stock {
+		m := out[s.ProductID]
+		m.Quantity = s.Quantity
+		out[s.ProductID] = m
+	}
+	return out, nil
+}
+
 type Service struct {
 	repo *Repository
+}
+
+func (s *Service) Metrics(productIDs []string) (map[string]ProductMetrics, error) {
+	return s.repo.Metrics(productIDs)
 }
 
 func NewService(repo *Repository) *Service {
@@ -196,8 +256,20 @@ func (s *Service) ListUnits() ([]Unit, error) {
 }
 
 func (s *Service) CreateCategory(req CreateCategoryRequest) (*Category, error) {
-	c := &Category{Name: req.Name, Description: req.Description}
-	return c, s.repo.CreateCategory(c)
+	c := &Category{Name: req.Name, Description: req.Description, Active: true}
+	if req.Active != nil {
+		c.Active = *req.Active
+	}
+	if err := s.repo.CreateCategory(c); err != nil {
+		return nil, err
+	}
+	if !c.Active {
+		// GORM skips zero-value bool on insert (column default true) → persist explicitly.
+		if err := s.repo.UpdateCategory(c); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
 }
 
 func (s *Service) UpdateCategory(id string, req UpdateCategoryRequest) (*Category, error) {
@@ -210,6 +282,9 @@ func (s *Service) UpdateCategory(id string, req UpdateCategoryRequest) (*Categor
 	}
 	if req.Description != nil {
 		c.Description = *req.Description
+	}
+	if req.Active != nil {
+		c.Active = *req.Active
 	}
 	return c, s.repo.UpdateCategory(c)
 }

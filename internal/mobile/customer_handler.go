@@ -38,10 +38,15 @@ func (h *CustomerMobileHandler) List(w http.ResponseWriter, r *http.Request) {
 			perPage = v
 		}
 	}
+	if p := q.Get("page"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil && v > 0 {
+			page = v
+		}
+	}
 	listQ := customer.ListQuery{Search: q.Get("search"), Page: page, PageSize: perPage}
 	items, total, err := h.svc.List(listQ)
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to list customers")
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được danh sách khách hàng")
 		return
 	}
 	dtos := make([]MobileCustomerDto, 0, len(items))
@@ -61,7 +66,7 @@ func (h *CustomerMobileHandler) Create(w http.ResponseWriter, r *http.Request) {
 		IsWalkIn bool    `json:"is_walk_in"`
 	}
 	if err := httputil.Decode(r, &body); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
 	code := ""
@@ -84,14 +89,18 @@ func (h *CustomerMobileHandler) Create(w http.ResponseWriter, r *http.Request) {
 		IsWalkIn: body.IsWalkIn,
 	})
 	if err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "failed to create customer")
+		adapter.Fail(w, http.StatusBadRequest, "Không tạo được khách hàng")
 		return
 	}
 	adapter.Created(w, "customer created", toCustomerDto(*c))
 }
 
 func (h *CustomerMobileHandler) Update(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	id, err := h.svc.ResolveID(chi.URLParam(r, "id"))
+	if err != nil {
+		adapter.Fail(w, http.StatusNotFound, "Không tìm thấy khách hàng")
+		return
+	}
 	var body struct {
 		Code     *string `json:"code"`
 		Name     *string `json:"name"`
@@ -101,15 +110,16 @@ func (h *CustomerMobileHandler) Update(w http.ResponseWriter, r *http.Request) {
 		IsWalkIn *bool   `json:"is_walk_in"`
 	}
 	if err := httputil.Decode(r, &body); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
+	var c *customer.Customer
 	var active *bool
 	if body.Status != nil {
 		a := *body.Status == 1
 		active = &a
 	}
-	c, err := h.svc.Update(id, customer.UpdateCustomerRequest{
+	c, err = h.svc.Update(id, customer.UpdateCustomerRequest{
 		Code:     body.Code,
 		Name:     body.Name,
 		Phone:    body.Phone,
@@ -119,13 +129,22 @@ func (h *CustomerMobileHandler) Update(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, customer.ErrNotFound) {
-			adapter.Fail(w, http.StatusNotFound, "customer not found")
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy khách hàng")
 			return
 		}
-		adapter.Fail(w, http.StatusInternalServerError, "failed to update customer")
+		adapter.Fail(w, http.StatusInternalServerError, "Không cập nhật được khách hàng")
 		return
 	}
 	adapter.OK(w, "customer updated", toCustomerDto(*c))
+}
+
+// mobileCustomerID returns the id exposed to Flutter: the walk-in customer is
+// always "CUS-0001" (the app compares Customer.id against that constant).
+func mobileCustomerID(c customer.Customer) string {
+	if c.IsWalkIn && c.Code == customer.WalkInCode {
+		return customer.WalkInCode
+	}
+	return c.ID.String()
 }
 
 func toCustomerDto(c customer.Customer) MobileCustomerDto {
@@ -140,7 +159,7 @@ func toCustomerDto(c customer.Customer) MobileCustomerDto {
 		address = &c.Address
 	}
 	return MobileCustomerDto{
-		ID:       c.ID.String(),
+		ID:       mobileCustomerID(c),
 		Code:     code,
 		Name:     c.Name,
 		Phone:    phone,

@@ -79,6 +79,8 @@ Hoặc xóa volume tương ứng trong Docker Desktop.
 | ID                   | Mô tả                              |
 | -------------------- | ---------------------------------- |
 | `001_initial_schema` | CREATE tất cả bảng (fresh install) |
+| `002_mobile_compat` | Cột/bảng cho Flutter (units, planting, media, feedback…) |
+| `003_production_fixes` | `feedbacks.id` → int tự tăng (Flutter cần int, có copy dữ liệu); index `orders(created_at)`, `orders(status, created_at)` |
 
 ## Troubleshooting
 

@@ -17,7 +17,12 @@ func NewRepository(db *gorm.DB) *Repository {
 }
 
 func (r *Repository) preload(q *gorm.DB) *gorm.DB {
-	return q.Preload("SprayTasks").Preload("FertilizeTasks").Preload("PlantingTasks")
+	byDate := func(col string) func(*gorm.DB) *gorm.DB {
+		return func(db *gorm.DB) *gorm.DB { return db.Order(col + " ASC, created_at ASC") }
+	}
+	return q.Preload("SprayTasks", byDate("spray_date")).
+		Preload("FertilizeTasks", byDate("fertilize_date")).
+		Preload("PlantingTasks", byDate("task_date"))
 }
 
 func (r *Repository) List() ([]PlantingSchedule, error) {
@@ -51,13 +56,13 @@ func (r *Repository) Delete(id string) error {
 }
 
 func (r *Repository) replaceNested(tx *gorm.DB, scheduleID string, s *PlantingSchedule) error {
-	if err := tx.Where("schedule_id = ?", scheduleID).Delete(&SprayTask{}).Error; err != nil {
+	if err := tx.Unscoped().Where("schedule_id = ?", scheduleID).Delete(&SprayTask{}).Error; err != nil {
 		return err
 	}
-	if err := tx.Where("schedule_id = ?", scheduleID).Delete(&FertilizeTask{}).Error; err != nil {
+	if err := tx.Unscoped().Where("schedule_id = ?", scheduleID).Delete(&FertilizeTask{}).Error; err != nil {
 		return err
 	}
-	if err := tx.Where("schedule_id = ?", scheduleID).Delete(&PlantingTask{}).Error; err != nil {
+	if err := tx.Unscoped().Where("schedule_id = ?", scheduleID).Delete(&PlantingTask{}).Error; err != nil {
 		return err
 	}
 	for i := range s.SprayTasks {
@@ -99,10 +104,15 @@ func (s *Service) Get(id string) (*PlantingSchedule, error) {
 	return s.repo.Get(id)
 }
 
+var ErrVegetableNameRequired = errors.New("vegetable_name is required")
+
 func (s *Service) Create(req WriteRequest) (*PlantingSchedule, error) {
+	if req.VegetableName == "" {
+		return nil, ErrVegetableNameRequired
+	}
 	sched := reqToModel(req)
 	if err := s.repo.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(sched).Error; err != nil {
+		if err := tx.Omit("SprayTasks", "FertilizeTasks", "PlantingTasks").Create(sched).Error; err != nil {
 			return err
 		}
 		return s.repo.replaceNested(tx, sched.ID.String(), sched)
@@ -119,7 +129,7 @@ func (s *Service) Update(id string, req WriteRequest) (*PlantingSchedule, error)
 	}
 	applyReq(sched, req)
 	if err := s.repo.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Save(sched).Error; err != nil {
+		if err := tx.Omit("SprayTasks", "FertilizeTasks", "PlantingTasks").Save(sched).Error; err != nil {
 			return err
 		}
 		return s.repo.replaceNested(tx, id, sched)
@@ -137,53 +147,41 @@ func (s *Service) Delete(id string) error {
 }
 
 func reqToModel(req WriteRequest) *PlantingSchedule {
-	s := &PlantingSchedule{
-		VegetableName:       req.VegetableName,
-		SeedType:            strVal(req.SeedType),
-		PlantingDate:        strVal(req.PlantingDate),
-		ExpectedHarvestDate: strVal(req.ExpectedHarvestDate),
-		ActualHarvestDate:   strVal(req.ActualHarvestDate),
-		Area:                strVal(req.Area),
-		SeedQuantity:        strVal(req.SeedQuantity),
-		SeedUnit:            strVal(req.SeedUnit),
-		Location:            strVal(req.Location),
-		ExpectedYield:       strVal(req.ExpectedYield),
-		ActualYield:         strVal(req.ActualYield),
-		SeedCost:            strVal(req.SeedCost),
-		Notes:               strVal(req.Notes),
-		Status:              req.Status,
-		IsHarvested:         req.IsHarvested,
-		SprayTasks:          req.SprayTasks,
-		FertilizeTasks:      req.FertilizeTasks,
-		PlantingTasks:       req.PlantingTasks,
-	}
+	s := &PlantingSchedule{}
+	applyReq(s, req)
 	return s
 }
 
 func applyReq(s *PlantingSchedule, req WriteRequest) {
-	s.VegetableName = req.VegetableName
-	s.SeedType = strVal(req.SeedType)
-	s.PlantingDate = strVal(req.PlantingDate)
-	s.ExpectedHarvestDate = strVal(req.ExpectedHarvestDate)
-	s.ActualHarvestDate = strVal(req.ActualHarvestDate)
-	s.Area = strVal(req.Area)
-	s.SeedQuantity = strVal(req.SeedQuantity)
-	s.SeedUnit = strVal(req.SeedUnit)
-	s.Location = strVal(req.Location)
-	s.ExpectedYield = strVal(req.ExpectedYield)
-	s.ActualYield = strVal(req.ActualYield)
-	s.SeedCost = strVal(req.SeedCost)
-	s.Notes = strVal(req.Notes)
-	s.Status = req.Status
-	s.IsHarvested = req.IsHarvested
-	s.SprayTasks = req.SprayTasks
-	s.FertilizeTasks = req.FertilizeTasks
-	s.PlantingTasks = req.PlantingTasks
-}
-
-func strVal(p *string) string {
-	if p == nil {
-		return ""
+	s.VegetableName = string(req.VegetableName)
+	s.SeedType = string(req.SeedType)
+	s.PlantingDate = dateOnly(req.PlantingDate)
+	s.ExpectedHarvestDate = dateOnly(req.ExpectedHarvestDate)
+	s.ActualHarvestDate = dateOnly(req.ActualHarvestDate)
+	s.Area = string(req.Area)
+	s.SeedQuantity = string(req.SeedQuantity)
+	s.SeedUnit = string(req.SeedUnit)
+	s.Location = string(req.Location)
+	s.ExpectedYield = string(req.ExpectedYield)
+	s.ActualYield = string(req.ActualYield)
+	s.SeedCost = string(req.SeedCost)
+	s.Notes = string(req.Notes)
+	s.Status = 0
+	if req.Status.V != nil {
+		s.Status = *req.Status.V
 	}
-	return *p
+	s.IsHarvested = req.IsHarvested
+
+	s.SprayTasks = make([]SprayTask, 0, len(req.SprayTasks))
+	for _, t := range req.SprayTasks {
+		s.SprayTasks = append(s.SprayTasks, t.toModel())
+	}
+	s.FertilizeTasks = make([]FertilizeTask, 0, len(req.FertilizeTasks))
+	for _, t := range req.FertilizeTasks {
+		s.FertilizeTasks = append(s.FertilizeTasks, t.toModel())
+	}
+	s.PlantingTasks = make([]PlantingTask, 0, len(req.PlantingTasks))
+	for _, t := range req.PlantingTasks {
+		s.PlantingTasks = append(s.PlantingTasks, t.toModel())
+	}
 }

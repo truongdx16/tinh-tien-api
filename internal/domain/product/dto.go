@@ -3,11 +3,13 @@ package product
 type CreateCategoryRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Active      *bool  `json:"active"` // nil = active
 }
 
 type UpdateCategoryRequest struct {
 	Name        *string `json:"name"`
 	Description *string `json:"description"`
+	Active      *bool   `json:"active"`
 }
 
 type CreateProductRequest struct {

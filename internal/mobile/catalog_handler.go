@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
 
@@ -66,7 +67,7 @@ func NewCatalogMobileHandler(svc *product.Service) *CatalogMobileHandler {
 func (h *CatalogMobileHandler) ListCategories(w http.ResponseWriter, r *http.Request) {
 	items, _, err := h.svc.ListCategories(1, 1000)
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to list categories")
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được danh sách danh mục")
 		return
 	}
 	dtos := make([]MobileCategoryDto, 0, len(items))
@@ -79,15 +80,17 @@ func (h *CatalogMobileHandler) ListCategories(w http.ResponseWriter, r *http.Req
 func (h *CatalogMobileHandler) CreateCategory(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name   string `json:"name"`
-		Status int    `json:"status"`
+		Status *int   `json:"status"`
 	}
 	if err := httputil.Decode(r, &body); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
-	item, err := h.svc.CreateCategory(product.CreateCategoryRequest{Name: body.Name})
+	// Flutter Category.status defaults to 0 for a new category → treat missing/0 on create as active.
+	active := true
+	item, err := h.svc.CreateCategory(product.CreateCategoryRequest{Name: body.Name, Active: &active})
 	if err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "failed to create category")
+		adapter.Fail(w, http.StatusBadRequest, "Không tạo được danh mục")
 		return
 	}
 	adapter.Created(w, "category created", toCategoryDto(*item))
@@ -100,16 +103,21 @@ func (h *CatalogMobileHandler) UpdateCategory(w http.ResponseWriter, r *http.Req
 		Status *int    `json:"status"`
 	}
 	if err := httputil.Decode(r, &body); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
-	item, err := h.svc.UpdateCategory(id, product.UpdateCategoryRequest{Name: body.Name})
+	var active *bool
+	if body.Status != nil {
+		a := adapter.StatusToBool(*body.Status)
+		active = &a
+	}
+	item, err := h.svc.UpdateCategory(id, product.UpdateCategoryRequest{Name: body.Name, Active: active})
 	if err != nil {
 		if errors.Is(err, product.ErrNotFound) {
-			adapter.Fail(w, http.StatusNotFound, "category not found")
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy danh mục")
 			return
 		}
-		adapter.Fail(w, http.StatusInternalServerError, "failed to update category")
+		adapter.Fail(w, http.StatusInternalServerError, "Không cập nhật được danh mục")
 		return
 	}
 	adapter.OK(w, "category updated", toCategoryDto(*item))
@@ -120,7 +128,7 @@ func (h *CatalogMobileHandler) UpdateCategory(w http.ResponseWriter, r *http.Req
 func (h *CatalogMobileHandler) ListUnits(w http.ResponseWriter, r *http.Request) {
 	items, err := h.svc.ListUnits()
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to list units")
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được danh sách đơn vị tính")
 		return
 	}
 	dtos := make([]MobileUnitDto, 0, len(items))
@@ -137,7 +145,7 @@ func (h *CatalogMobileHandler) CreateUnit(w http.ResponseWriter, r *http.Request
 		Status int     `json:"status"`
 	}
 	if err := httputil.Decode(r, &body); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
 	slug := ""
@@ -146,7 +154,7 @@ func (h *CatalogMobileHandler) CreateUnit(w http.ResponseWriter, r *http.Request
 	}
 	item, err := h.svc.CreateUnit(body.Name, slug, body.Status)
 	if err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "failed to create unit")
+		adapter.Fail(w, http.StatusBadRequest, "Không tạo được đơn vị tính")
 		return
 	}
 	adapter.Created(w, "unit created", toUnitDto(*item))
@@ -160,16 +168,16 @@ func (h *CatalogMobileHandler) UpdateUnit(w http.ResponseWriter, r *http.Request
 		Status *int    `json:"status"`
 	}
 	if err := httputil.Decode(r, &body); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
 	item, err := h.svc.UpdateUnit(id, body.Name, body.Slug, body.Status)
 	if err != nil {
 		if errors.Is(err, product.ErrNotFound) {
-			adapter.Fail(w, http.StatusNotFound, "unit not found")
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy đơn vị tính")
 			return
 		}
-		adapter.Fail(w, http.StatusInternalServerError, "failed to update unit")
+		adapter.Fail(w, http.StatusInternalServerError, "Không cập nhật được đơn vị tính")
 		return
 	}
 	adapter.OK(w, "unit updated", toUnitDto(*item))
@@ -207,12 +215,21 @@ func (h *CatalogMobileHandler) ListProducts(w http.ResponseWriter, r *http.Reque
 
 	items, total, err := h.svc.ListProducts(listQ)
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to list products")
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được danh sách sản phẩm")
+		return
+	}
+	ids := make([]string, 0, len(items))
+	for _, p := range items {
+		ids = append(ids, p.ID.String())
+	}
+	metrics, err := h.svc.Metrics(ids)
+	if err != nil {
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được số liệu sản phẩm")
 		return
 	}
 	dtos := make([]MobileProductDto, 0, len(items))
 	for _, p := range items {
-		dtos = append(dtos, toProductDto(p))
+		dtos = append(dtos, toProductDto(p, metrics[p.ID.String()]))
 	}
 	adapter.OKPaginated(w, "products retrieved", dtos, page, total, perPage)
 }
@@ -222,23 +239,23 @@ func (h *CatalogMobileHandler) GetProduct(w http.ResponseWriter, r *http.Request
 	item, err := h.svc.GetProduct(id)
 	if err != nil {
 		if errors.Is(err, product.ErrNotFound) {
-			adapter.Fail(w, http.StatusNotFound, "product not found")
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy sản phẩm")
 			return
 		}
-		adapter.Fail(w, http.StatusInternalServerError, "failed to get product")
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được sản phẩm")
 		return
 	}
-	adapter.OK(w, "product retrieved", toProductDto(*item))
+	adapter.OK(w, "product retrieved", h.productDto(*item))
 }
 
 func (h *CatalogMobileHandler) CreateProduct(w http.ResponseWriter, r *http.Request) {
 	var body MobileProductWriteBody
 	if err := httputil.Decode(r, &body); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
-	sensitivity := "0"
-	if body.Sensitivity != nil {
+	sensitivity := "0.1"
+	if body.Sensitivity != nil && *body.Sensitivity > 0 {
 		sensitivity = strconv.FormatFloat(*body.Sensitivity, 'f', -1, 64)
 	}
 	imageURL := ""
@@ -250,36 +267,41 @@ func (h *CatalogMobileHandler) CreateProduct(w http.ResponseWriter, r *http.Requ
 		Name:        body.Name,
 		ImageURL:    imageURL,
 		Sensitivity: sensitivity,
-		SellPrice:   int64(body.Price),
+		SellPrice:   int64(math.Round(body.Price)),
 		Active:      body.Status == 1,
 		CategoryIDs: body.CategoryIDs,
 	}
+	if body.UnitID != nil && *body.UnitID != "" {
+		if u, err := h.svc.GetUnit(*body.UnitID); err == nil {
+			req.Unit = u.Name
+		}
+	}
 	item, err := h.svc.CreateProduct(req)
 	if err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "failed to create product")
+		adapter.Fail(w, http.StatusBadRequest, "Không tạo được sản phẩm")
 		return
 	}
 	// reload with associations
 	item, _ = h.svc.GetProduct(item.ID.String())
-	adapter.Created(w, "product created", toProductDto(*item))
+	adapter.Created(w, "product created", h.productDto(*item))
 }
 
 func (h *CatalogMobileHandler) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var body MobileProductWriteBody
 	if err := httputil.Decode(r, &body); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
-	sensitivity := "0"
-	if body.Sensitivity != nil {
+	sensitivity := "0.1"
+	if body.Sensitivity != nil && *body.Sensitivity > 0 {
 		sensitivity = strconv.FormatFloat(*body.Sensitivity, 'f', -1, 64)
 	}
 	imageURL := ""
 	if body.ImageURL != nil {
 		imageURL = *body.ImageURL
 	}
-	price := int64(body.Price)
+	price := int64(math.Round(body.Price))
 	active := body.Status == 1
 	req := product.UpdateProductRequest{
 		UnitID:      body.UnitID,
@@ -290,29 +312,40 @@ func (h *CatalogMobileHandler) UpdateProduct(w http.ResponseWriter, r *http.Requ
 		Active:      &active,
 		CategoryIDs: body.CategoryIDs,
 	}
+	if body.UnitID != nil && *body.UnitID != "" {
+		if u, err := h.svc.GetUnit(*body.UnitID); err == nil {
+			req.Unit = &u.Name
+		}
+	}
 	item, err := h.svc.UpdateProduct(id, req)
 	if err != nil {
 		if errors.Is(err, product.ErrNotFound) {
-			adapter.Fail(w, http.StatusNotFound, "product not found")
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy sản phẩm")
 			return
 		}
-		adapter.Fail(w, http.StatusInternalServerError, "failed to update product")
+		adapter.Fail(w, http.StatusInternalServerError, "Không cập nhật được sản phẩm")
 		return
 	}
 	item, _ = h.svc.GetProduct(item.ID.String())
-	adapter.OK(w, "product updated", toProductDto(*item))
+	adapter.OK(w, "product updated", h.productDto(*item))
 }
 
 func (h *CatalogMobileHandler) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.svc.DeleteProduct(id); err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to delete product")
+		adapter.Fail(w, http.StatusInternalServerError, "Không xoá được sản phẩm")
 		return
 	}
 	adapter.OK(w, "product deleted", nil)
 }
 
 // ---------- Helpers ----------
+
+func (h *CatalogMobileHandler) productDto(p product.Product) MobileProductDto {
+	id := p.ID.String()
+	metrics, _ := h.svc.Metrics([]string{id})
+	return toProductDto(p, metrics[id])
+}
 
 func toCategoryDto(c product.Category) MobileCategoryDto {
 	return MobileCategoryDto{
@@ -336,15 +369,15 @@ func toUnitDto(u product.Unit) MobileUnitDto {
 	}
 }
 
-func toProductDto(p product.Product) MobileProductDto {
+func toProductDto(p product.Product, m product.ProductMetrics) MobileProductDto {
 	imageURL := p.ImageURL
 	var imagePtr *string
 	if imageURL != "" {
 		imagePtr = &imageURL
 	}
 	sensitivity := p.Sensitivity
-	if sensitivity == "" {
-		sensitivity = "0"
+	if sensitivity == "" || sensitivity == "0" {
+		sensitivity = "0.1" // Flutter default step
 	}
 
 	cats := make([]MobileCategoryDto, 0, len(p.Categories))
@@ -367,9 +400,9 @@ func toProductDto(p product.Product) MobileProductDto {
 		Name:          p.Name,
 		ImageURL:      imagePtr,
 		Price:         adapter.MoneyStr(p.SellPrice),
-		Quantity:      "0",
-		SalesQuantity: "0",
-		Revenue:       "0",
+		Quantity:      adapter.FloatStr(m.Quantity),
+		SalesQuantity: adapter.FloatStr(m.SalesQuantity),
+		Revenue:       adapter.MoneyStr(m.Revenue),
 		Sensitivity:   sensitivity,
 		Status:        adapter.BoolToStatus(p.Active),
 		Unit:          unitDto,

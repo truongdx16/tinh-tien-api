@@ -162,6 +162,15 @@ func (s *Service) RecordMovement(m *Movement) error {
 	})
 }
 
+// HasMovement reports whether a movement of the given type exists for a reference (e.g. order id).
+func (s *Service) HasMovement(referenceID string, t MovementType) (bool, error) {
+	var count int64
+	err := s.repo.db.Model(&Movement{}).
+		Where("reference_id = ? AND type = ?", referenceID, t).
+		Count(&count).Error
+	return count > 0, err
+}
+
 func (s *Service) GetBalance(productID string) (*Balance, error) {
 	return s.repo.GetBalance(productID)
 }

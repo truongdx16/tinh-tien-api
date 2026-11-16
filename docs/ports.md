@@ -12,7 +12,7 @@ Dải port dev tránh trùng với service mặc định (8080, 3306).
 
 ```bash
 HTTP_ADDR=:2170
-DB_DSN=tinh_tien:tinh_tien@tcp(localhost:2171)/tinh_tien?charset=utf8mb4&parseTime=True&loc=Local
+DB_DSN=tinh_tien:tinh_tien@tcp(localhost:2171)/tinh_tien?charset=utf8mb4&parseTime=True&loc=UTC
 ```
 
 ## Thêm service sau này

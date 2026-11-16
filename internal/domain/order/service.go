@@ -2,11 +2,13 @@ package order
 
 import (
 	"errors"
+	"math"
 	"time"
 
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"tinh-tien-api/internal/domain/inventory"
 	"tinh-tien-api/internal/domain/product"
-	"gorm.io/gorm"
 )
 
 var (
@@ -14,6 +16,7 @@ var (
 	ErrInvalidStatus       = errors.New("invalid status transition")
 	ErrEmptyItems          = errors.New("order must have at least one item")
 	ErrPaymentExceedsTotal = errors.New("payment exceeds balance due")
+	ErrOrderClosed         = errors.New("order is delivered or cancelled")
 )
 
 type Repository struct {
@@ -52,10 +55,14 @@ func (r *Repository) List(q ListQuery) ([]Order, int64, error) {
 	if q.CustomerID != "" {
 		query = query.Where("customer_id = ?", q.CustomerID)
 	}
-	if q.From != nil && *q.From != "" {
+	if q.FromTime != nil {
+		query = query.Where("created_at >= ?", *q.FromTime)
+	} else if q.From != nil && *q.From != "" {
 		query = query.Where("created_at >= ?", *q.From)
 	}
-	if q.To != nil && *q.To != "" {
+	if q.ToTime != nil {
+		query = query.Where("created_at < ?", *q.ToTime)
+	} else if q.To != nil && *q.To != "" {
 		query = query.Where("created_at <= ?", *q.To)
 	}
 	var total int64
@@ -115,9 +122,9 @@ func (r *Repository) WithTx(fn func(tx *gorm.DB) error) error {
 }
 
 type Service struct {
-	repo      *Repository
+	repo        *Repository
 	productRepo *product.Repository
-	invSvc    *inventory.Service
+	invSvc      *inventory.Service
 }
 
 func NewService(repo *Repository, productRepo *product.Repository, invSvc *inventory.Service) *Service {
@@ -132,24 +139,12 @@ func (s *Service) Create(req CreateOrderRequest, userID string) (*Order, error) 
 	items := make([]OrderItem, 0, len(req.Items))
 	var subtotal int64
 	for _, it := range req.Items {
-		p, err := s.productRepo.GetProduct(it.ProductID)
+		item, err := s.newItem(it)
 		if err != nil {
 			return nil, err
 		}
-		price := p.SellPrice
-		if it.UnitPrice != nil {
-			price = *it.UnitPrice
-		}
-		lineTotal := int64(float64(price) * it.Quantity)
-		subtotal += lineTotal
-		items = append(items, OrderItem{
-			ProductID: it.ProductID,
-			Name:      p.Name,
-			Unit:      p.Unit,
-			Quantity:  it.Quantity,
-			UnitPrice: price,
-			LineTotal: lineTotal,
-		})
+		subtotal += item.LineTotal
+		items = append(items, item)
 	}
 
 	status := req.Status
@@ -161,6 +156,8 @@ func (s *Service) Create(req CreateOrderRequest, userID string) (*Order, error) 
 		ft = FulfillmentPickup
 	}
 
+	discount, total, paid := computeTotals(subtotal, req.Discount, req.PaidAmount)
+
 	order := &Order{
 		CustomerID:      req.CustomerID,
 		Status:          status,
@@ -168,9 +165,11 @@ func (s *Service) Create(req CreateOrderRequest, userID string) (*Order, error) 
 		DeliveryAddress: req.DeliveryAddress,
 		Note:            req.Note,
 		AllowBackorder:  req.AllowBackorder,
+		Discount:        discount,
 		Subtotal:        subtotal,
-		Total:           subtotal,
-		BalanceDue:      subtotal,
+		Total:           total,
+		PaidAmount:      paid,
+		BalanceDue:      total - paid,
 		CreatedBy:       userID,
 		Items:           items,
 	}
@@ -188,6 +187,132 @@ func (s *Service) Create(req CreateOrderRequest, userID string) (*Order, error) 
 		return nil, err
 	}
 	return s.repo.Get(order.ID.String())
+}
+
+// newItem builds an order line priced from the product catalog (or req.UnitPrice).
+func (s *Service) newItem(req OrderItemRequest) (OrderItem, error) {
+	p, err := s.productRepo.GetProduct(req.ProductID)
+	if err != nil {
+		return OrderItem{}, err
+	}
+	price := p.SellPrice
+	if req.UnitPrice != nil {
+		price = *req.UnitPrice
+	}
+	unit := p.Unit
+	if p.UnitRef != nil && p.UnitRef.Name != "" {
+		unit = p.UnitRef.Name
+	}
+	return OrderItem{
+		ProductID: req.ProductID,
+		Name:      p.Name,
+		Unit:      unit,
+		Quantity:  req.Quantity,
+		UnitPrice: price,
+		LineTotal: lineTotal(price, req.Quantity),
+	}, nil
+}
+
+func lineTotal(price int64, quantity float64) int64 {
+	return int64(math.Round(float64(price) * quantity))
+}
+
+// computeTotals clamps discount to [0, subtotal] and paid to [0, total].
+// A nil paid means the order is paid in full.
+func computeTotals(subtotal, discount int64, paid *int64) (appliedDiscount, total, paidAmount int64) {
+	if discount < 0 {
+		discount = 0
+	}
+	if discount > subtotal {
+		discount = subtotal
+	}
+	total = subtotal - discount
+	paidAmount = total
+	if paid != nil {
+		paidAmount = *paid
+		if paidAmount < 0 {
+			paidAmount = 0
+		}
+		if paidAmount > total {
+			paidAmount = total
+		}
+	}
+	return discount, total, paidAmount
+}
+
+// Update changes the lines, discount and payment of an order that is still
+// open. Lines already on the order keep their original price and name, so an
+// edit never reprices a sale. Stock already deducted is returned and deducted
+// again for the new quantities.
+func (s *Service) Update(id string, req UpdateOrderRequest) (*Order, error) {
+	if len(req.Items) == 0 {
+		return nil, ErrEmptyItems
+	}
+	order, err := s.repo.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if order.Status == StatusDelivered || order.Status == StatusCancelled {
+		return nil, ErrOrderClosed
+	}
+	deducted, err := s.invSvc.HasMovement(order.ID.String(), inventory.MovementSale)
+	if err != nil {
+		return nil, err
+	}
+
+	existing := make(map[string]OrderItem, len(order.Items))
+	for _, it := range order.Items {
+		existing[it.ProductID] = it
+	}
+	items := make([]OrderItem, 0, len(req.Items))
+	var subtotal int64
+	for _, it := range req.Items {
+		item := OrderItem{}
+		if old, ok := existing[it.ProductID]; ok {
+			item = OrderItem{
+				ProductID: old.ProductID,
+				Name:      old.Name,
+				Unit:      old.Unit,
+				Quantity:  it.Quantity,
+				UnitPrice: old.UnitPrice,
+				LineTotal: lineTotal(old.UnitPrice, it.Quantity),
+			}
+		} else if item, err = s.newItem(it); err != nil {
+			return nil, err
+		}
+		item.OrderID = id
+		subtotal += item.LineTotal
+		items = append(items, item)
+	}
+
+	err = s.repo.WithTx(func(tx *gorm.DB) error {
+		if deducted {
+			if err := s.restock(order); err != nil {
+				return err
+			}
+		}
+		if err := tx.Unscoped().Where("order_id = ?", id).Delete(&OrderItem{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&items).Error; err != nil {
+			return err
+		}
+		order.Items = items
+		order.Discount, order.Total, order.PaidAmount = computeTotals(subtotal, req.Discount, req.PaidAmount)
+		order.Subtotal = subtotal
+		order.BalanceDue = order.Total - order.PaidAmount
+		if err := tx.Omit(clause.Associations).Save(order).Error; err != nil {
+			return err
+		}
+		if deducted {
+			return s.deductStock(order)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.Get(id)
 }
 
 func (s *Service) UpdateStatus(id string, req UpdateStatusRequest) (*Order, error) {
@@ -209,7 +334,13 @@ func (s *Service) UpdateStatus(id string, req UpdateStatusRequest) (*Order, erro
 			}
 		}
 		if req.Status == StatusCancelled && prev != StatusCancelled {
-			if prev == StatusConfirmed || prev == StatusPacked || prev == StatusDelivered {
+			// Only return stock that was actually deducted (POS orders and imported
+			// history never created sale movements).
+			deducted, err := s.invSvc.HasMovement(order.ID.String(), inventory.MovementSale)
+			if err != nil {
+				return err
+			}
+			if deducted {
 				if err := s.restock(order); err != nil {
 					return err
 				}
@@ -326,10 +457,14 @@ func canTransition(from, to Status) bool {
 	case StatusDraft:
 		return to == StatusConfirmed || to == StatusCancelled
 	case StatusConfirmed:
-		return to == StatusPacked || to == StatusCancelled
+		// The mobile app has no "packed" step: processing goes straight to completed.
+		return to == StatusPacked || to == StatusDelivered || to == StatusCancelled
 	case StatusPacked:
 		return to == StatusDelivered || to == StatusCancelled
-	case StatusDelivered, StatusCancelled:
+	case StatusDelivered:
+		// POS sales are completed immediately; the shop must still be able to void them.
+		return to == StatusCancelled
+	case StatusCancelled:
 		return false
 	default:
 		return false

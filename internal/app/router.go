@@ -30,7 +30,9 @@ type Handlers struct {
 	Report   *report.Handler
 	Settings *settings.Handler
 	AuthSvc  *auth.Service
-	Mobile   MobileHandlers
+	// UploadDir is served at /uploads/* (media uploaded by the app).
+	UploadDir string
+	Mobile    MobileHandlers
 }
 
 type MobileHandlers struct {
@@ -65,7 +67,11 @@ func NewRouter(h Handlers) http.Handler {
 	r.Get("/docs", DocsHandler())
 
 	// Serve uploaded files
-	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
+	uploadDir := h.UploadDir
+	if uploadDir == "" {
+		uploadDir = "uploads"
+	}
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
 
 	// ---- /api/v1  Flutter mobile contract ----
 	r.Route("/api/v1", func(r chi.Router) {
@@ -108,6 +114,8 @@ func NewRouter(h Handlers) http.Handler {
 				r.Get("/", h.Mobile.Order.List)
 				r.Post("/", h.Mobile.Order.Create)
 				r.Get("/{id}", h.Mobile.Order.Get)
+				r.Put("/{id}", h.Mobile.Order.Update)
+				r.Patch("/{id}/status", h.Mobile.Order.UpdateStatus)
 				r.Patch("/{id}/cancel", h.Mobile.Order.Cancel)
 			})
 

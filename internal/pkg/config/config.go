@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
+	_ "time/tzdata" // embed tz database so Asia/Ho_Chi_Minh works on minimal images
 
 	"gopkg.in/yaml.v3"
 )
@@ -13,6 +15,29 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Shop     ShopConfig     `yaml:"shop"`
+	App      AppConfig      `yaml:"app"`
+	Media    MediaConfig    `yaml:"media"`
+}
+
+// AppConfig holds business-level settings.
+type AppConfig struct {
+	// Timezone used to group revenue by day and to interpret date-only filters (from/to).
+	// Timestamps are stored in UTC (DSN must use loc=UTC).
+	Timezone string `yaml:"timezone"`
+}
+
+// MediaConfig controls where uploaded files are stored and how their public URL is built.
+type MediaConfig struct {
+	UploadDir     string `yaml:"upload_dir"`
+	PublicBaseURL string `yaml:"public_base_url"` // e.g. https://api.example.com (no trailing slash)
+}
+
+// Location returns the configured business timezone (falls back to UTC+7).
+func (c *Config) Location() *time.Location {
+	if loc, err := time.LoadLocation(c.App.Timezone); err == nil {
+		return loc
+	}
+	return time.FixedZone("ICT", 7*60*60)
 }
 
 type ServerConfig struct {
@@ -62,6 +87,15 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("HTTP_ADDR"); v != "" {
 		c.Server.Addr = v
 	}
+	if v := os.Getenv("APP_TIMEZONE"); v != "" {
+		c.App.Timezone = v
+	}
+	if v := os.Getenv("UPLOAD_DIR"); v != "" {
+		c.Media.UploadDir = v
+	}
+	if v := os.Getenv("PUBLIC_BASE_URL"); v != "" {
+		c.Media.PublicBaseURL = v
+	}
 }
 
 func (c *Config) setDefaults() {
@@ -79,5 +113,15 @@ func (c *Config) setDefaults() {
 	}
 	if c.Shop.Currency == "" {
 		c.Shop.Currency = "VND"
+	}
+	if c.App.Timezone == "" {
+		c.App.Timezone = "Asia/Ho_Chi_Minh"
+	}
+	if c.Media.UploadDir == "" {
+		c.Media.UploadDir = "uploads"
+	}
+	c.Media.PublicBaseURL = strings.TrimRight(c.Media.PublicBaseURL, "/")
+	if c.Media.PublicBaseURL == "" {
+		c.Media.PublicBaseURL = "http://localhost" + c.Server.Addr
 	}
 }

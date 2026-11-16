@@ -2,10 +2,13 @@ package mobile
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	"tinh-tien-api/internal/domain/auth"
+	"tinh-tien-api/internal/domain/customer"
 	"tinh-tien-api/internal/domain/order"
 	"tinh-tien-api/internal/mobile/adapter"
 	"tinh-tien-api/internal/pkg/httputil"
@@ -54,34 +57,61 @@ type MobileOrderDto struct {
 }
 
 type MobileOrderWriteBody struct {
-	ID         *string `json:"id"`
-	CustomerID *string `json:"customer_id"`
-	Discount   float64 `json:"discount"`
-	PaidAmount float64 `json:"paid_amount"`
+	ID         *string  `json:"id"`
+	CustomerID *string  `json:"customer_id"`
+	Discount   float64  `json:"discount"`
+	PaidAmount *float64 `json:"paid_amount"` // omitted by Flutter when paid in full
 	Items      []struct {
 		ProductID string  `json:"product_id"`
 		Quantity  float64 `json:"quantity"`
 	} `json:"items"`
 }
 
-type OrderMobileHandler struct {
-	svc *order.Service
+func (b MobileOrderWriteBody) orderItems() []order.OrderItemRequest {
+	items := make([]order.OrderItemRequest, 0, len(b.Items))
+	for _, it := range b.Items {
+		items = append(items, order.OrderItemRequest{
+			ProductID: it.ProductID,
+			Quantity:  it.Quantity,
+		})
+	}
+	return items
 }
 
-func NewOrderMobileHandler(svc *order.Service) *OrderMobileHandler {
-	return &OrderMobileHandler{svc: svc}
+func (b MobileOrderWriteBody) paidAmount() *int64 {
+	if b.PaidAmount == nil {
+		return nil
+	}
+	v := int64(math.Round(*b.PaidAmount))
+	return &v
 }
+
+type OrderMobileHandler struct {
+	svc         *order.Service
+	customerSvc *customer.Service
+	loc         *time.Location
+}
+
+func NewOrderMobileHandler(svc *order.Service, customerSvc *customer.Service, loc *time.Location) *OrderMobileHandler {
+	return &OrderMobileHandler{svc: svc, customerSvc: customerSvc, loc: loc}
+}
+
+// maxOrdersPerList bounds GET /orders (Flutter has no paging for orders; ~30 orders/day).
+const maxOrdersPerList = 20000
 
 func (h *OrderMobileHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	from := q.Get("from")
-	to := q.Get("to")
+	fromT, toT, err := adapter.DayRange(q.Get("from"), q.Get("to"), h.loc)
+	if err != nil {
+		adapter.Fail(w, http.StatusBadRequest, userMessage(err, "Ngày không hợp lệ"))
+		return
+	}
 
 	listQ := order.ListQuery{
-		From:     &from,
-		To:       &to,
+		FromTime: fromT,
+		ToTime:   toT,
 		Page:     1,
-		PageSize: 200,
+		PageSize: maxOrdersPerList,
 	}
 	if s := q.Get("status"); s != "" {
 		if v, err := strconv.Atoi(s); err == nil {
@@ -92,12 +122,12 @@ func (h *OrderMobileHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	items, _, err := h.svc.List(listQ)
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to list orders")
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được danh sách đơn hàng")
 		return
 	}
 	dtos := make([]MobileOrderDto, 0, len(items))
 	for _, o := range items {
-		dtos = append(dtos, toOrderDto(o))
+		dtos = append(dtos, h.toOrderDto(o))
 	}
 	adapter.OK(w, "orders retrieved", dtos)
 }
@@ -107,52 +137,101 @@ func (h *OrderMobileHandler) Get(w http.ResponseWriter, r *http.Request) {
 	o, err := h.svc.Get(id)
 	if err != nil {
 		if errors.Is(err, order.ErrNotFound) {
-			adapter.Fail(w, http.StatusNotFound, "order not found")
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy đơn hàng")
 			return
 		}
-		adapter.Fail(w, http.StatusInternalServerError, "failed to get order")
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được đơn hàng")
 		return
 	}
-	adapter.OK(w, "order retrieved", toOrderDto(*o))
+	adapter.OK(w, "order retrieved", h.toOrderDto(*o))
 }
 
 func (h *OrderMobileHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var body MobileOrderWriteBody
 	if err := httputil.Decode(r, &body); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
 	userID := auth.UserIDFromContext(r.Context())
 
-	items := make([]order.OrderItemRequest, 0, len(body.Items))
-	for _, it := range body.Items {
-		items = append(items, order.OrderItemRequest{
-			ProductID: it.ProductID,
-			Quantity:  it.Quantity,
-		})
+	// Flutter sends "CUS-0001" for walk-in sales → resolve to the customer UUID.
+	var customerID *string
+	if body.CustomerID != nil && *body.CustomerID != "" {
+		id, err := h.customerSvc.ResolveID(*body.CustomerID)
+		if err != nil {
+			adapter.Fail(w, http.StatusBadRequest, "Không tìm thấy khách hàng")
+			return
+		}
+		customerID = &id
 	}
 
 	o, err := h.svc.Create(order.CreateOrderRequest{
-		CustomerID: body.CustomerID,
-		Items:      items,
-		Status:     order.StatusConfirmed, // Flutter creates orders as confirmed
+		CustomerID: customerID,
+		Items:      body.orderItems(),
+		// POS sale: completed immediately (matches imported history, Flutter status 2).
+		// Stock is not tracked by the mobile app, so no stock check / deduction.
+		Status:         order.StatusDelivered,
+		AllowBackorder: true,
+		Discount:       int64(math.Round(body.Discount)),
+		PaidAmount:     body.paidAmount(),
 	}, userID)
 	if err != nil {
-		adapter.Fail(w, http.StatusBadRequest, err.Error())
+		adapter.Fail(w, http.StatusBadRequest, userMessage(err, "Không tạo được đơn hàng"))
 		return
 	}
-	// Apply discount if present
-	if body.Discount > 0 {
-		// Update discount field on order
-		disc := int64(body.Discount)
-		o.Discount = disc
-		o.Total = o.Subtotal - disc
-		if o.Total < 0 {
-			o.Total = 0
-		}
-		o.BalanceDue = o.Total - o.PaidAmount
+	adapter.Created(w, "order created", h.toOrderDto(*o))
+}
+
+// Update handles PUT /orders/{id}: edits the items, discount and payment of an
+// order that is not completed or cancelled.
+func (h *OrderMobileHandler) Update(w http.ResponseWriter, r *http.Request) {
+	var body MobileOrderWriteBody
+	if err := httputil.Decode(r, &body); err != nil {
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
+		return
 	}
-	adapter.Created(w, "order created", toOrderDto(*o))
+	o, err := h.svc.Update(chi.URLParam(r, "id"), order.UpdateOrderRequest{
+		Items:      body.orderItems(),
+		Discount:   int64(math.Round(body.Discount)),
+		PaidAmount: body.paidAmount(),
+	})
+	if err != nil {
+		h.failWrite(w, err, "Không cập nhật được đơn hàng")
+		return
+	}
+	adapter.OK(w, "order updated", h.toOrderDto(*o))
+}
+
+// UpdateStatus handles PATCH /orders/{id}/status with {"status": 0-3}.
+func (h *OrderMobileHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Status *int `json:"status"`
+	}
+	if err := httputil.Decode(r, &body); err != nil || body.Status == nil {
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
+		return
+	}
+	status, ok := flutterToGoStatus[*body.Status]
+	if !ok {
+		adapter.Fail(w, http.StatusBadRequest, "Trạng thái đơn hàng không hợp lệ")
+		return
+	}
+	o, err := h.svc.UpdateStatus(chi.URLParam(r, "id"), order.UpdateStatusRequest{Status: status})
+	if err != nil {
+		h.failWrite(w, err, "Không cập nhật được trạng thái đơn hàng")
+		return
+	}
+	adapter.OK(w, "order status updated", h.toOrderDto(*o))
+}
+
+func (h *OrderMobileHandler) failWrite(w http.ResponseWriter, err error, fallback string) {
+	status := http.StatusBadRequest
+	if errors.Is(err, order.ErrNotFound) {
+		status = http.StatusNotFound
+	} else if errors.Is(err, order.ErrInvalidStatus) || errors.Is(err, order.ErrOrderClosed) {
+		status = http.StatusConflict
+	}
+	adapter.Fail(w, status, userMessage(err, fallback))
 }
 
 func (h *OrderMobileHandler) Cancel(w http.ResponseWriter, r *http.Request) {
@@ -160,16 +239,16 @@ func (h *OrderMobileHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	o, err := h.svc.UpdateStatus(id, order.UpdateStatusRequest{Status: order.StatusCancelled})
 	if err != nil {
 		if errors.Is(err, order.ErrNotFound) {
-			adapter.Fail(w, http.StatusNotFound, "order not found")
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy đơn hàng")
 			return
 		}
-		adapter.Fail(w, http.StatusBadRequest, err.Error())
+		adapter.Fail(w, http.StatusBadRequest, userMessage(err, "Không huỷ được đơn hàng"))
 		return
 	}
-	adapter.OK(w, "order cancelled", toOrderDto(*o))
+	adapter.OK(w, "order cancelled", h.toOrderDto(*o))
 }
 
-func toOrderDto(o order.Order) MobileOrderDto {
+func (h *OrderMobileHandler) toOrderDto(o order.Order) MobileOrderDto {
 	items := make([]MobileOrderItemDto, 0, len(o.Items))
 	for _, it := range o.Items {
 		pid := it.ProductID
@@ -184,20 +263,22 @@ func toOrderDto(o order.Order) MobileOrderDto {
 		})
 	}
 
-	createdAt := o.CreatedAt.Format("2006-01-02T15:04:05Z07:00")
-	updatedAt := o.UpdatedAt.Format("2006-01-02T15:04:05Z07:00")
+	createdAt := adapter.ISOTime(o.CreatedAt, h.loc)
+	updatedAt := adapter.ISOTime(o.UpdatedAt, h.loc)
 
+	customerID := o.CustomerID
 	var custDto *MobileCustomerDto
 	if o.Customer != nil {
 		d := toCustomerDto(*o.Customer)
 		custDto = &d
+		customerID = &d.ID
 	}
 
 	statusInt := goToFlutterStatus[o.Status]
 
 	return MobileOrderDto{
 		ID:         o.ID.String(),
-		CustomerID: o.CustomerID,
+		CustomerID: customerID,
 		Discount:   adapter.MoneyStr(o.Discount),
 		Revenue:    adapter.MoneyStr(o.Total),
 		PaidAmount: adapter.MoneyStr(o.PaidAmount),

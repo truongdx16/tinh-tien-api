@@ -5,11 +5,20 @@ server:
 
 database:
   # Host port 2171 (21 + kênh 7) → MariaDB container 3306
-  dsn: "tinh_tien:tinh_tien@tcp(localhost:2171)/tinh_tien?charset=utf8mb4&parseTime=True&loc=Local"
+  dsn: "tinh_tien:tinh_tien@tcp(localhost:2171)/tinh_tien?charset=utf8mb4&parseTime=True&loc=UTC"
 
 auth:
   jwt_secret: "change-me-in-production"
   token_ttl: 24h
+
+app:
+  # Ngày thống kê & bộ lọc from/to theo giờ Việt Nam. DB lưu UTC (DSN loc=UTC).
+  timezone: "Asia/Ho_Chi_Minh"
+
+media:
+  upload_dir: "uploads"
+  # URL công khai của API (dùng để tạo file_url khi upload). Production: đặt PUBLIC_BASE_URL.
+  public_base_url: ""
 
 shop:
   name: "Hộ kinh doanh nông sản"

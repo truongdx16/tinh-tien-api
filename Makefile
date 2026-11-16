@@ -1,7 +1,28 @@
-.PHONY: run build test lint tidy docker-up docker-down docker-reset migrate seed openapi-validate openapi-ui openapi-gen-ts mobile-test
+.PHONY: run build test lint tidy docker-up docker-down docker-reset migrate seed import openapi-validate openapi-ui openapi-gen-ts mobile-test
+
+# Tự nạp biến từ .env (DB_DSN, JWT_SECRET, HTTP_ADDR, OWNER_*, ...) nếu có.
+# Dùng `?=` để biến truyền trên dòng lệnh được ưu tiên: `HTTP_ADDR=:2190 make run`.
+ifneq (,$(wildcard .env))
+ENV_VARS := $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' .env)
+$(foreach v,$(ENV_VARS),$(eval $(v) ?= $(shell sed -n 's/^$(v)=//p' .env)))
+export $(ENV_VARS)
+endif
 
 run:
 	go run ./cmd/api
+
+# Nhập dữ liệu Firebase đã chuyển đổi: make import FILE=../tinh_tien/tools/tinh_tien_admin/export/go/import.sql
+# Cần client `mysql`/`mariadb`, hoặc đặt DB_CONTAINER=<tên container> để chạy qua docker exec.
+FILE ?= ../tinh_tien/tools/tinh_tien_admin/export/go/import.sql
+DB_USER ?= root
+DB_NAME ?= tinh_tien
+import:
+ifdef DB_CONTAINER
+	docker exec -i $(DB_CONTAINER) mariadb -u$(DB_USER) -p$(DB_PASSWORD) $(DB_NAME) < $(FILE)
+else
+	mysql -h $(or $(DB_HOST),127.0.0.1) -P $(or $(DB_PORT),3306) -u$(DB_USER) -p$(DB_PASSWORD) $(DB_NAME) < $(FILE)
+endif
+	@echo "imported $(FILE) into $(DB_NAME)"
 
 build:
 	go build -o bin/api ./cmd/api

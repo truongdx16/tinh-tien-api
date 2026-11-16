@@ -3,6 +3,7 @@ package mobile
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"tinh-tien-api/internal/domain/auth"
 	"tinh-tien-api/internal/mobile/adapter"
@@ -43,19 +44,19 @@ func NewAuthMobileHandler(svc *auth.Service) *AuthMobileHandler {
 func (h *AuthMobileHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req MobileLoginRequest
 	if err := httputil.Decode(r, &req); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
 	// Flutter sends email field; we use it as username.
-	resp, err := h.svc.Login(auth.LoginRequest{Username: req.Email, Password: req.Password})
+	resp, err := h.svc.Login(auth.LoginRequest{Username: strings.TrimSpace(req.Email), Password: req.Password})
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrInvalidCredentials):
-			adapter.Fail(w, http.StatusUnauthorized, "invalid credentials")
+			adapter.Fail(w, http.StatusUnauthorized, "Sai email hoặc mật khẩu")
 		case errors.Is(err, auth.ErrUserInactive):
-			adapter.Fail(w, http.StatusForbidden, "account inactive")
+			adapter.Fail(w, http.StatusForbidden, "Tài khoản đã bị khoá")
 		default:
-			adapter.Fail(w, http.StatusInternalServerError, "login failed")
+			adapter.Fail(w, http.StatusInternalServerError, "Đăng nhập thất bại, vui lòng thử lại")
 		}
 		return
 	}
@@ -73,12 +74,12 @@ func (h *AuthMobileHandler) Logout(w http.ResponseWriter, r *http.Request) {
 func (h *AuthMobileHandler) Me(w http.ResponseWriter, r *http.Request) {
 	claims := auth.FromContext(r.Context())
 	if claims == nil {
-		adapter.Fail(w, http.StatusUnauthorized, "unauthorized")
+		adapter.Fail(w, http.StatusUnauthorized, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại")
 		return
 	}
 	user, err := h.svc.GetUser(claims.UserID)
 	if err != nil {
-		adapter.Fail(w, http.StatusNotFound, "user not found")
+		adapter.Fail(w, http.StatusNotFound, "Không tìm thấy người dùng")
 		return
 	}
 	adapter.OK(w, "user retrieved", userToMobileDto(user))
@@ -87,7 +88,7 @@ func (h *AuthMobileHandler) Me(w http.ResponseWriter, r *http.Request) {
 func (h *AuthMobileHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	users, _, err := h.svc.ListUsers(1, 200)
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to list users")
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được danh sách người dùng")
 		return
 	}
 	dtos := make([]MobileUserDto, 0, len(users))

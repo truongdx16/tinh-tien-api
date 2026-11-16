@@ -27,28 +27,28 @@ const (
 type PaymentMethod string
 
 const (
-	PaymentCash   PaymentMethod = "cash"
-	PaymentBank   PaymentMethod = "bank_transfer"
-	PaymentCOD    PaymentMethod = "cod"
+	PaymentCash PaymentMethod = "cash"
+	PaymentBank PaymentMethod = "bank_transfer"
+	PaymentCOD  PaymentMethod = "cod"
 )
 
 type Order struct {
 	model.Base
-	CustomerID      *string         `gorm:"type:uuid;index" json:"customer_id"`
+	CustomerID      *string            `gorm:"type:uuid;index" json:"customer_id"`
 	Customer        *customer.Customer `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
-	Status          Status          `gorm:"size:32;not null;default:draft" json:"status"`
-	FulfillmentType FulfillmentType `gorm:"size:32;not null;default:pickup" json:"fulfillment_type"`
-	DeliveryAddress string          `gorm:"size:512" json:"delivery_address"`
-	Note            string          `gorm:"size:1024" json:"note"`
-	AllowBackorder  bool            `gorm:"not null;default:false" json:"allow_backorder"`
-	Discount        int64           `gorm:"not null;default:0" json:"discount"`
-	Subtotal        int64           `gorm:"not null;default:0" json:"subtotal"`
-	Total           int64           `gorm:"not null;default:0" json:"total"`
-	PaidAmount      int64           `gorm:"not null;default:0" json:"paid_amount"`
-	BalanceDue      int64           `gorm:"not null;default:0" json:"balance_due"`
-	CreatedBy       string          `gorm:"type:uuid" json:"created_by"`
-	Items           []OrderItem     `gorm:"foreignKey:OrderID" json:"items,omitempty"`
-	Payments        []Payment       `gorm:"foreignKey:OrderID" json:"payments,omitempty"`
+	Status          Status             `gorm:"size:32;not null;default:draft" json:"status"`
+	FulfillmentType FulfillmentType    `gorm:"size:32;not null;default:pickup" json:"fulfillment_type"`
+	DeliveryAddress string             `gorm:"size:512" json:"delivery_address"`
+	Note            string             `gorm:"size:1024" json:"note"`
+	AllowBackorder  bool               `gorm:"not null;default:false" json:"allow_backorder"`
+	Discount        int64              `gorm:"not null;default:0" json:"discount"`
+	Subtotal        int64              `gorm:"not null;default:0" json:"subtotal"`
+	Total           int64              `gorm:"not null;default:0" json:"total"`
+	PaidAmount      int64              `gorm:"not null;default:0" json:"paid_amount"`
+	BalanceDue      int64              `gorm:"not null;default:0" json:"balance_due"`
+	CreatedBy       string             `gorm:"type:uuid" json:"created_by"`
+	Items           []OrderItem        `gorm:"foreignKey:OrderID" json:"items,omitempty"`
+	Payments        []Payment          `gorm:"foreignKey:OrderID" json:"payments,omitempty"`
 }
 
 type OrderItem struct {

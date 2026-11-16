@@ -14,34 +14,17 @@ func TestCanTransition(t *testing.T) {
 		{order.StatusDraft, order.StatusConfirmed, true},
 		{order.StatusDraft, order.StatusCancelled, true},
 		{order.StatusConfirmed, order.StatusPacked, true},
+		{order.StatusConfirmed, order.StatusDelivered, true},
 		{order.StatusPacked, order.StatusDelivered, true},
-		{order.StatusDelivered, order.StatusCancelled, false},
+		// POS sales are created as delivered and must remain voidable.
+		{order.StatusDelivered, order.StatusCancelled, true},
+		{order.StatusDelivered, order.StatusConfirmed, false},
 		{order.StatusCancelled, order.StatusConfirmed, false},
 	}
 
 	for _, tt := range tests {
-		got := canTransitionExported(tt.from, tt.to)
-		if got != tt.want {
+		if got := order.CanTransition(tt.from, tt.to); got != tt.want {
 			t.Errorf("canTransition(%s, %s) = %v, want %v", tt.from, tt.to, got, tt.want)
 		}
-	}
-}
-
-// canTransitionExported mirrors order.canTransition for testing.
-func canTransitionExported(from, to order.Status) bool {
-	if from == to {
-		return true
-	}
-	switch from {
-	case order.StatusDraft:
-		return to == order.StatusConfirmed || to == order.StatusCancelled
-	case order.StatusConfirmed:
-		return to == order.StatusPacked || to == order.StatusCancelled
-	case order.StatusPacked:
-		return to == order.StatusDelivered || to == order.StatusCancelled
-	case order.StatusDelivered, order.StatusCancelled:
-		return false
-	default:
-		return false
 	}
 }

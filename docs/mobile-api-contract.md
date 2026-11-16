@@ -61,6 +61,8 @@ Walk-in convention: `code == "CUS-0001"` seeded automatically.
 | GET    | `/orders`             | `?from=YYYY-MM-DD&to=YYYY-MM-DD&status=0` → `OrderDto[]` |
 | POST   | `/orders`             | create                                                   |
 | GET    | `/orders/{id}`        |                                                          |
+| PUT    | `/orders/{id}`        | edits items, discount, paid_amount (same body as POST). Existing lines keep their price. 409 if completed/cancelled |
+| PATCH  | `/orders/{id}/status` | `{status: 0-3}`. Allowed: 0→1/3, 1→2/3, 2→3. 409 otherwise |
 | PATCH  | `/orders/{id}/cancel` | cancels order                                            |
 
 **OrderDto**: `{id, customer_id, discount, revenue, paid_amount, status: int, created_at, updated_at, customer, items[]}`  

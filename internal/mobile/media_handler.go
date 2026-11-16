@@ -32,7 +32,7 @@ func NewMediaMobileHandler(svc *media.Service, baseURL, uploadDir string) *Media
 func (h *MediaMobileHandler) List(w http.ResponseWriter, r *http.Request) {
 	items, err := h.svc.List()
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to list media")
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được danh sách ảnh")
 		return
 	}
 	dtos := make([]MobileMediaDto, 0, len(items))
@@ -44,13 +44,13 @@ func (h *MediaMobileHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *MediaMobileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "failed to parse multipart form")
+		adapter.Fail(w, http.StatusBadRequest, "Tệp tải lên không hợp lệ")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "missing file field")
+		adapter.Fail(w, http.StatusBadRequest, "Chưa chọn tệp để tải lên")
 		return
 	}
 	defer file.Close()
@@ -60,7 +60,7 @@ func (h *MediaMobileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure upload directory exists
 	if err := os.MkdirAll(h.uploadDir, 0755); err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to create upload directory")
+		adapter.Fail(w, http.StatusInternalServerError, "Không lưu được tệp tải lên")
 		return
 	}
 
@@ -70,14 +70,14 @@ func (h *MediaMobileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	dst, err := os.Create(filePath)
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to save file")
+		adapter.Fail(w, http.StatusInternalServerError, "Không lưu được tệp tải lên")
 		return
 	}
 	defer dst.Close()
 
 	size, err := io.Copy(dst, file)
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to write file")
+		adapter.Fail(w, http.StatusInternalServerError, "Không lưu được tệp tải lên")
 		return
 	}
 
@@ -95,7 +95,7 @@ func (h *MediaMobileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	saved, err := h.svc.Save(m)
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to save media record")
+		adapter.Fail(w, http.StatusInternalServerError, "Không lưu được thông tin tệp tải lên")
 		return
 	}
 	adapter.Created(w, "media uploaded", toMediaDto(*saved))

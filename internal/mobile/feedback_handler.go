@@ -2,6 +2,8 @@ package mobile
 
 import (
 	"net/http"
+	"strings"
+	"time"
 
 	"tinh-tien-api/internal/domain/auth"
 	"tinh-tien-api/internal/domain/feedback"
@@ -9,12 +11,13 @@ import (
 	"tinh-tien-api/internal/pkg/httputil"
 )
 
+// MobileFeedbackDto maps to Flutter FeedbackNote (id and user_id are int there).
 type MobileFeedbackDto struct {
-	ID        string  `json:"id"`
+	ID        uint    `json:"id"`
 	Content   string  `json:"content"`
 	Rating    *int    `json:"rating"`
 	CreatedAt *string `json:"created_at"`
-	UserID    *string `json:"user_id"`
+	UserID    *int    `json:"user_id"` // users use UUIDs → always null
 }
 
 type FeedbackMobileHandler struct {
@@ -28,7 +31,7 @@ func NewFeedbackMobileHandler(svc *feedback.Service) *FeedbackMobileHandler {
 func (h *FeedbackMobileHandler) List(w http.ResponseWriter, r *http.Request) {
 	items, err := h.svc.List()
 	if err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "failed to list feedback")
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được danh sách phản hồi")
 		return
 	}
 	dtos := make([]MobileFeedbackDto, 0, len(items))
@@ -45,7 +48,11 @@ func (h *FeedbackMobileHandler) Create(w http.ResponseWriter, r *http.Request) {
 		FullName *string `json:"full_name"`
 	}
 	if err := httputil.Decode(r, &body); err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "invalid request body")
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
+		return
+	}
+	if strings.TrimSpace(body.Content) == "" {
+		adapter.Fail(w, http.StatusBadRequest, "Vui lòng nhập nội dung phản hồi")
 		return
 	}
 	userID := auth.UserIDFromContext(r.Context())
@@ -55,26 +62,18 @@ func (h *FeedbackMobileHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := h.svc.Create(body.Content, body.Rating, fullName, userID)
 	if err != nil {
-		adapter.Fail(w, http.StatusBadRequest, err.Error())
+		adapter.Fail(w, http.StatusBadRequest, userMessage(err, "Không gửi được phản hồi"))
 		return
 	}
 	adapter.Created(w, "feedback created", toFeedbackDto(*f))
 }
 
 func toFeedbackDto(f feedback.Feedback) MobileFeedbackDto {
-	id := f.ID.String()
-	ca := f.CreatedAt.Format("2006-01-02T15:04:05Z07:00")
-	uid := f.UserID
-	var uidPtr *string
-	if uid != "" {
-		uidPtr = &uid
-	}
-	_ = id
+	ca := f.CreatedAt.Format(time.RFC3339)
 	return MobileFeedbackDto{
-		ID:        f.ID.String(),
+		ID:        f.ID,
 		Content:   f.Content,
 		Rating:    f.Rating,
 		CreatedAt: &ca,
-		UserID:    uidPtr,
 	}
 }

@@ -38,6 +38,17 @@ func main() {
 	}
 
 	opts := app.DefaultSeedOptions()
+	if v := os.Getenv("OWNER_USERNAME"); v != "" {
+		opts.OwnerUsername = v
+	}
+	if v := os.Getenv("OWNER_FULL_NAME"); v != "" {
+		opts.OwnerFullName = v
+	}
+	if v := os.Getenv("OWNER_PASSWORD"); v != "" {
+		opts.OwnerPassword = v
+	} else if os.Getenv("APP_ENV") == "production" {
+		log.Fatal("seed: OWNER_PASSWORD is required when APP_ENV=production (default owner123 is not allowed)")
+	}
 	if err := app.Seed(gormDB, cfg, opts); err != nil {
 		log.Fatalf("seed: %v", err)
 	}

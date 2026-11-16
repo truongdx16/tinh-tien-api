@@ -186,6 +186,85 @@ func (r *Repository) TotalRevenue(from, to string) (int64, error) {
 	return total, err
 }
 
+// ---- Mobile (Flutter) aggregates ----
+// from/to are UTC, half-open [from, to). tzOffset like "+07:00" groups days in shop time.
+
+type DailyRevenue struct {
+	SummaryDate string
+	OrderCount  int64
+	Subtotal    int64
+	Discount    int64
+	Revenue     int64
+}
+
+type TopProduct struct {
+	ProductID     string
+	Name          string
+	SalesQuantity float64
+	Revenue       int64
+	Price         int64
+}
+
+type CustomerRevenue struct {
+	CustomerID   *string
+	CustomerName string
+	IsWalkIn     bool
+	Code         string
+	OrderCount   int64
+	Revenue      int64
+	Debt         int64
+}
+
+var countedStatuses = []order.Status{order.StatusCancelled, order.StatusDraft}
+
+func applyRange(q *gorm.DB, col string, from, to *time.Time) *gorm.DB {
+	if from != nil {
+		q = q.Where(col+" >= ?", *from)
+	}
+	if to != nil {
+		q = q.Where(col+" < ?", *to)
+	}
+	return q
+}
+
+func (r *Repository) DailyRevenue(from, to *time.Time, tzOffset string) ([]DailyRevenue, error) {
+	day := "DATE(CONVERT_TZ(created_at, '+00:00', '" + tzOffset + "'))"
+	q := r.db.Model(&order.Order{}).Where("status NOT IN ?", countedStatuses)
+	q = applyRange(q, "created_at", from, to)
+	var rows []DailyRevenue
+	err := q.Select("DATE_FORMAT(" + day + ", '%Y-%m-%d') AS summary_date, COUNT(*) AS order_count, " +
+		"COALESCE(SUM(subtotal),0) AS subtotal, COALESCE(SUM(discount),0) AS discount, COALESCE(SUM(total),0) AS revenue").
+		Group(day).Order(day + " ASC").Scan(&rows).Error
+	return rows, err
+}
+
+func (r *Repository) TopProducts(from, to *time.Time, limit int) ([]TopProduct, error) {
+	q := r.db.Table("order_items").
+		Select("order_items.product_id, COALESCE(MAX(products.name), MAX(order_items.name)) AS name, " +
+			"COALESCE(SUM(order_items.quantity),0) AS sales_quantity, COALESCE(SUM(order_items.line_total),0) AS revenue, " +
+			"COALESCE(MAX(products.sell_price),0) AS price").
+		Joins("JOIN orders ON orders.id = order_items.order_id AND orders.deleted_at IS NULL").
+		Joins("LEFT JOIN products ON products.id = order_items.product_id").
+		Where("order_items.deleted_at IS NULL AND orders.status NOT IN ?", countedStatuses)
+	q = applyRange(q, "orders.created_at", from, to)
+	var rows []TopProduct
+	err := q.Group("order_items.product_id").Order("revenue DESC").Limit(limit).Scan(&rows).Error
+	return rows, err
+}
+
+func (r *Repository) CustomerRevenue(from, to *time.Time) ([]CustomerRevenue, error) {
+	q := r.db.Table("orders").
+		Select("orders.customer_id, COALESCE(MAX(customers.name), '') AS customer_name, " +
+			"COALESCE(MAX(customers.is_walk_in), 0) AS is_walk_in, COALESCE(MAX(customers.code), '') AS code, " +
+			"COUNT(*) AS order_count, COALESCE(SUM(orders.total),0) AS revenue, COALESCE(SUM(orders.balance_due),0) AS debt").
+		Joins("LEFT JOIN customers ON customers.id = orders.customer_id").
+		Where("orders.deleted_at IS NULL AND orders.status NOT IN ?", countedStatuses)
+	q = applyRange(q, "orders.created_at", from, to)
+	var rows []CustomerRevenue
+	err := q.Group("orders.customer_id").Order("revenue DESC").Scan(&rows).Error
+	return rows, err
+}
+
 type Service struct {
 	repo       *Repository
 	expenseSvc *expense.Service
@@ -237,6 +316,18 @@ func (s *Service) ProfitSummary(from, to string) (*ProfitSummary, error) {
 		return nil, err
 	}
 	return &ProfitSummary{Revenue: revenue, Expenses: expenses, Profit: revenue - expenses}, nil
+}
+
+func (s *Service) DailyRevenue(from, to *time.Time, tzOffset string) ([]DailyRevenue, error) {
+	return s.repo.DailyRevenue(from, to, tzOffset)
+}
+
+func (s *Service) TopProducts(from, to *time.Time, limit int) ([]TopProduct, error) {
+	return s.repo.TopProducts(from, to, limit)
+}
+
+func (s *Service) CustomerRevenue(from, to *time.Time) ([]CustomerRevenue, error) {
+	return s.repo.CustomerRevenue(from, to)
 }
 
 func DefaultPeriod() (string, string) {

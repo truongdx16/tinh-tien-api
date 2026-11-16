@@ -4,6 +4,7 @@ package adapter
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -13,10 +14,10 @@ func MoneyStr(v int64) string {
 	return strconv.FormatInt(v, 10)
 }
 
-// FloatStr formats a float64 (quantity) as a plain numeric string without trailing zeros.
+// FloatStr formats a float64 (quantity) as a plain numeric string without trailing zeros,
+// rounded to 3 decimals (SUM over DOUBLE columns yields e.g. 3454.450000000004).
 func FloatStr(v float64) string {
-	s := strconv.FormatFloat(v, 'f', -1, 64)
-	return s
+	return strconv.FormatFloat(math.Round(v*1000)/1000, 'f', -1, 64)
 }
 
 // ParseMoney parses a decimal string (possibly float like "15000.5") to int64 VND.

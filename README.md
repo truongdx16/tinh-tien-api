@@ -50,7 +50,7 @@ Docker Compose starts MariaDB 11 with:
 Default DSN (see `configs/config.yaml`):
 
 ```txt
-tinh_tien:tinh_tien@tcp(localhost:2171)/tinh_tien?charset=utf8mb4&parseTime=True&loc=Local
+tinh_tien:tinh_tien@tcp(localhost:2171)/tinh_tien?charset=utf8mb4&parseTime=True&loc=UTC
 ```
 
 ## Project layout
@@ -75,6 +75,13 @@ Follows a pragmatic subset of [golang-standards/project-layout](https://github.c
 | `JWT_SECRET`  | JWT signing secret           |
 | `HTTP_ADDR`   | Server listen address        |
 | `CONFIG_PATH` | Path to YAML config          |
+| `APP_TIMEZONE` | Múi giờ thống kê / lọc ngày (mặc định `Asia/Ho_Chi_Minh`). DSN phải `loc=UTC` |
+| `PUBLIC_BASE_URL` | URL công khai của API, dùng tạo `file_url` khi upload |
+| `UPLOAD_DIR`  | Thư mục lưu file upload (mặc định `uploads`) |
+| `OWNER_USERNAME` / `OWNER_PASSWORD` / `OWNER_FULL_NAME` | Tài khoản chủ hộ do `make seed` tạo |
+| `APP_ENV`     | `production` → seed bắt buộc có `OWNER_PASSWORD` |
+
+Chuyển dữ liệu từ Firebase: xem [docs/firebase-import.md](docs/firebase-import.md).
 
 ## Make targets
 

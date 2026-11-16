@@ -64,8 +64,7 @@ func BuildHandlers(db *gorm.DB, cfg *config.Config) Handlers {
 	feedbackRepo := feedback.NewRepository(db)
 	feedbackSvc := feedback.NewService(feedbackRepo)
 
-	baseURL := "http://localhost" + cfg.Server.Addr
-	uploadDir := "uploads"
+	loc := cfg.Location()
 
 	return Handlers{
 		Auth:      authHandler,
@@ -78,14 +77,15 @@ func BuildHandlers(db *gorm.DB, cfg *config.Config) Handlers {
 		Report:    reportHandler,
 		Settings:  settingsHandler,
 		AuthSvc:   authSvc,
+		UploadDir: cfg.Media.UploadDir,
 		Mobile: MobileHandlers{
 			Auth:     mobile.NewAuthMobileHandler(authSvc),
 			Catalog:  mobile.NewCatalogMobileHandler(productSvc),
 			Customer: mobile.NewCustomerMobileHandler(customerSvc),
-			Order:    mobile.NewOrderMobileHandler(orderSvc),
-			Planting: mobile.NewPlantingMobileHandler(plantingSvc),
-			Media:    mobile.NewMediaMobileHandler(mediaSvc, baseURL, uploadDir),
-			Stats:    mobile.NewStatsMobileHandler(reportSvc),
+			Order:    mobile.NewOrderMobileHandler(orderSvc, customerSvc, loc),
+			Planting: mobile.NewPlantingMobileHandler(plantingSvc, loc),
+			Media:    mobile.NewMediaMobileHandler(mediaSvc, cfg.Media.PublicBaseURL, cfg.Media.UploadDir),
+			Stats:    mobile.NewStatsMobileHandler(reportSvc, loc),
 			Feedback: mobile.NewFeedbackMobileHandler(feedbackSvc),
 		},
 	}
