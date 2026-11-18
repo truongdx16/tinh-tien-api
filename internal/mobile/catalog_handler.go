@@ -278,7 +278,7 @@ func (h *CatalogMobileHandler) CreateProduct(w http.ResponseWriter, r *http.Requ
 	}
 	item, err := h.svc.CreateProduct(req)
 	if err != nil {
-		adapter.Fail(w, http.StatusBadRequest, "Không tạo được sản phẩm")
+		failProduct(w, err, "Không tạo được sản phẩm")
 		return
 	}
 	// reload with associations
@@ -319,11 +319,7 @@ func (h *CatalogMobileHandler) UpdateProduct(w http.ResponseWriter, r *http.Requ
 	}
 	item, err := h.svc.UpdateProduct(id, req)
 	if err != nil {
-		if errors.Is(err, product.ErrNotFound) {
-			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy sản phẩm")
-			return
-		}
-		adapter.Fail(w, http.StatusInternalServerError, "Không cập nhật được sản phẩm")
+		failProduct(w, err, "Không cập nhật được sản phẩm")
 		return
 	}
 	item, _ = h.svc.GetProduct(item.ID.String())
@@ -333,10 +329,24 @@ func (h *CatalogMobileHandler) UpdateProduct(w http.ResponseWriter, r *http.Requ
 func (h *CatalogMobileHandler) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.svc.DeleteProduct(id); err != nil {
-		adapter.Fail(w, http.StatusInternalServerError, "Không xoá được sản phẩm")
+		failProduct(w, err, "Không xoá được sản phẩm")
 		return
 	}
 	adapter.OK(w, "product deleted", nil)
+}
+
+// failProduct answers a product write error: validation → 400 with its
+// message, missing → 404, anything else → 500 with [fallback].
+func failProduct(w http.ResponseWriter, err error, fallback string) {
+	var invalid *product.ValidationError
+	switch {
+	case errors.As(err, &invalid):
+		adapter.Fail(w, http.StatusBadRequest, invalid.Msg)
+	case errors.Is(err, product.ErrNotFound):
+		adapter.Fail(w, http.StatusNotFound, "Không tìm thấy sản phẩm")
+	default:
+		adapter.Fail(w, http.StatusInternalServerError, fallback)
+	}
 }
 
 // ---------- Helpers ----------

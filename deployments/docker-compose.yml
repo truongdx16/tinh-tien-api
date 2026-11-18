@@ -2,6 +2,7 @@ services:
   mariadb:
     image: mariadb:11
     container_name: tinh-tien-mariadb
+    restart: unless-stopped
     environment:
       MARIADB_ROOT_PASSWORD: root
       MARIADB_DATABASE: tinh_tien

@@ -11,31 +11,31 @@ import (
 )
 
 type SalesReportQuery struct {
-	From string
-	To   string
+	From    string
+	To      string
 	GroupBy string // day, week, month
 }
 
 type SalesBucket struct {
-	Period      string `json:"period"`
-	OrderCount  int64  `json:"order_count"`
-	Revenue     int64  `json:"revenue"`
-	PaidAmount  int64  `json:"paid_amount"`
-	BalanceDue  int64  `json:"balance_due"`
+	Period     string `json:"period"`
+	OrderCount int64  `json:"order_count"`
+	Revenue    int64  `json:"revenue"`
+	PaidAmount int64  `json:"paid_amount"`
+	BalanceDue int64  `json:"balance_due"`
 }
 
 type ProductStat struct {
-	ProductID   string  `json:"product_id"`
-	ProductName string  `json:"product_name"`
+	ProductID    string  `json:"product_id"`
+	ProductName  string  `json:"product_name"`
 	QuantitySold float64 `json:"quantity_sold"`
-	Revenue     int64   `json:"revenue"`
+	Revenue      int64   `json:"revenue"`
 }
 
 type CropStat struct {
-	CropName      string  `json:"crop_name"`
-	HarvestQty    float64 `json:"harvest_qty"`
-	SoldQty       float64 `json:"sold_qty"`
-	RemainingQty  float64 `json:"remaining_qty"`
+	CropName     string  `json:"crop_name"`
+	HarvestQty   float64 `json:"harvest_qty"`
+	SoldQty      float64 `json:"sold_qty"`
+	RemainingQty float64 `json:"remaining_qty"`
 }
 
 type ProfitSummary struct {
@@ -81,7 +81,7 @@ func (r *Repository) SalesReport(q SalesReportQuery) ([]SalesBucket, error) {
 
 	var rows []row
 	err := query.
-		Select(periodExpr+" as period, COUNT(*) as order_count, COALESCE(SUM(total),0) as revenue, COALESCE(SUM(paid_amount),0) as paid_amount, COALESCE(SUM(balance_due),0) as balance_due").
+		Select(periodExpr + " as period, COUNT(*) as order_count, COALESCE(SUM(total),0) as revenue, COALESCE(SUM(paid_amount),0) as paid_amount, COALESCE(SUM(balance_due),0) as balance_due").
 		Group(periodExpr).
 		Order(periodExpr + " asc").
 		Scan(&rows).Error
@@ -102,7 +102,7 @@ func (r *Repository) SalesReport(q SalesReportQuery) ([]SalesBucket, error) {
 func (r *Repository) ProductStats(from, to string) ([]ProductStat, error) {
 	query := r.db.Table("order_items").
 		Select("order_items.product_id, order_items.name as product_name, COALESCE(SUM(order_items.quantity),0) as quantity_sold, COALESCE(SUM(order_items.line_total),0) as revenue").
-		Joins("JOIN orders ON orders.id = order_items.order_id").
+		Joins("JOIN orders ON orders.id = order_items.order_id AND orders.deleted_at IS NULL").
 		Where("orders.status NOT IN ?", []order.Status{order.StatusCancelled, order.StatusDraft})
 	if from != "" {
 		query = query.Where("orders.created_at >= ?", from)
@@ -134,7 +134,7 @@ func (r *Repository) CropStats(from, to string) ([]CropStat, error) {
 
 	soldQuery := r.db.Table("order_items").
 		Select("order_items.product_id, COALESCE(SUM(order_items.quantity),0) as qty").
-		Joins("JOIN orders ON orders.id = order_items.order_id").
+		Joins("JOIN orders ON orders.id = order_items.order_id AND orders.deleted_at IS NULL").
 		Where("orders.status NOT IN ?", []order.Status{order.StatusCancelled, order.StatusDraft})
 	if from != "" {
 		soldQuery = soldQuery.Where("orders.created_at >= ?", from)
@@ -240,8 +240,8 @@ func (r *Repository) DailyRevenue(from, to *time.Time, tzOffset string) ([]Daily
 
 func (r *Repository) TopProducts(from, to *time.Time, limit int) ([]TopProduct, error) {
 	q := r.db.Table("order_items").
-		Select("order_items.product_id, COALESCE(MAX(products.name), MAX(order_items.name)) AS name, " +
-			"COALESCE(SUM(order_items.quantity),0) AS sales_quantity, COALESCE(SUM(order_items.line_total),0) AS revenue, " +
+		Select("order_items.product_id, COALESCE(MAX(products.name), MAX(order_items.name)) AS name, "+
+			"COALESCE(SUM(order_items.quantity),0) AS sales_quantity, COALESCE(SUM(order_items.line_total),0) AS revenue, "+
 			"COALESCE(MAX(products.sell_price),0) AS price").
 		Joins("JOIN orders ON orders.id = order_items.order_id AND orders.deleted_at IS NULL").
 		Joins("LEFT JOIN products ON products.id = order_items.product_id").
@@ -254,8 +254,8 @@ func (r *Repository) TopProducts(from, to *time.Time, limit int) ([]TopProduct, 
 
 func (r *Repository) CustomerRevenue(from, to *time.Time) ([]CustomerRevenue, error) {
 	q := r.db.Table("orders").
-		Select("orders.customer_id, COALESCE(MAX(customers.name), '') AS customer_name, " +
-			"COALESCE(MAX(customers.is_walk_in), 0) AS is_walk_in, COALESCE(MAX(customers.code), '') AS code, " +
+		Select("orders.customer_id, COALESCE(MAX(customers.name), '') AS customer_name, "+
+			"COALESCE(MAX(customers.is_walk_in), 0) AS is_walk_in, COALESCE(MAX(customers.code), '') AS code, "+
 			"COUNT(*) AS order_count, COALESCE(SUM(orders.total),0) AS revenue, COALESCE(SUM(orders.balance_due),0) AS debt").
 		Joins("LEFT JOIN customers ON customers.id = orders.customer_id").
 		Where("orders.deleted_at IS NULL AND orders.status NOT IN ?", countedStatuses)
@@ -263,6 +263,51 @@ func (r *Repository) CustomerRevenue(from, to *time.Time) ([]CustomerRevenue, er
 	var rows []CustomerRevenue
 	err := q.Group("orders.customer_id").Order("revenue DESC").Scan(&rows).Error
 	return rows, err
+}
+
+// CustomerSummary is what one customer bought in a period (cancelled and
+// draft orders excluded, like CustomerRevenue).
+type CustomerSummary struct {
+	OrderCount   int64
+	Revenue      int64
+	Debt         int64
+	FirstOrderAt *time.Time
+	LastOrderAt  *time.Time
+}
+
+func (r *Repository) CustomerSummary(customerID string, from, to *time.Time) (CustomerSummary, error) {
+	base := func() *gorm.DB {
+		q := r.db.Model(&order.Order{}).
+			Where("customer_id = ? AND status NOT IN ?", customerID, countedStatuses)
+		return applyRange(q, "created_at", from, to)
+	}
+
+	var sum CustomerSummary
+	var totals struct {
+		OrderCount int64
+		Revenue    int64
+		Debt       int64
+	}
+	err := base().
+		Select("COUNT(*) AS order_count, COALESCE(SUM(total),0) AS revenue, COALESCE(SUM(balance_due),0) AS debt").
+		Scan(&totals).Error
+	if err != nil {
+		return sum, err
+	}
+	sum.OrderCount, sum.Revenue, sum.Debt = totals.OrderCount, totals.Revenue, totals.Debt
+	if sum.OrderCount == 0 {
+		return sum, nil
+	}
+
+	var first, last order.Order
+	if err := base().Select("id, created_at").Order("created_at asc").Limit(1).Find(&first).Error; err != nil {
+		return sum, err
+	}
+	if err := base().Select("id, created_at").Order("created_at desc").Limit(1).Find(&last).Error; err != nil {
+		return sum, err
+	}
+	sum.FirstOrderAt, sum.LastOrderAt = &first.CreatedAt, &last.CreatedAt
+	return sum, nil
 }
 
 type Service struct {
@@ -324,6 +369,10 @@ func (s *Service) DailyRevenue(from, to *time.Time, tzOffset string) ([]DailyRev
 
 func (s *Service) TopProducts(from, to *time.Time, limit int) ([]TopProduct, error) {
 	return s.repo.TopProducts(from, to, limit)
+}
+
+func (s *Service) CustomerSummary(customerID string, from, to *time.Time) (CustomerSummary, error) {
+	return s.repo.CustomerSummary(customerID, from, to)
 }
 
 func (s *Service) CustomerRevenue(from, to *time.Time) ([]CustomerRevenue, error) {

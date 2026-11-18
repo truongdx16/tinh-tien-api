@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -83,6 +84,38 @@ func (h *AuthMobileHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	adapter.OK(w, "user retrieved", userToMobileDto(user))
+}
+
+// ChangePassword: POST /auth/change-password
+// {"current_password": "...", "new_password": "..."} for the signed-in user.
+func (h *AuthMobileHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	claims := auth.FromContext(r.Context())
+	if claims == nil {
+		adapter.Fail(w, http.StatusUnauthorized, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại")
+		return
+	}
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := httputil.Decode(r, &body); err != nil {
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
+		return
+	}
+	err := h.svc.ChangePassword(claims.UserID, body.CurrentPassword, body.NewPassword)
+	switch {
+	case err == nil:
+		adapter.OK(w, "Đã đổi mật khẩu", nil)
+	case errors.Is(err, auth.ErrWrongPassword):
+		adapter.Fail(w, http.StatusBadRequest, "Mật khẩu hiện tại không đúng")
+	case errors.Is(err, auth.ErrWeakPassword):
+		adapter.Fail(w, http.StatusBadRequest,
+			fmt.Sprintf("Mật khẩu mới cần ít nhất %d ký tự và khác mật khẩu hiện tại", auth.MinPasswordLength))
+	case errors.Is(err, auth.ErrUserNotFound):
+		adapter.Fail(w, http.StatusNotFound, "Không tìm thấy người dùng")
+	default:
+		adapter.Fail(w, http.StatusInternalServerError, "Không đổi được mật khẩu")
+	}
 }
 
 func (h *AuthMobileHandler) ListUsers(w http.ResponseWriter, r *http.Request) {

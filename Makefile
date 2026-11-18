@@ -1,4 +1,4 @@
-.PHONY: run build test lint tidy docker-up docker-down docker-reset migrate seed import openapi-validate openapi-ui openapi-gen-ts mobile-test
+.PHONY: run stop db-up build test lint tidy docker-up docker-down docker-reset migrate migrate-status seed import openapi-validate openapi-ui openapi-gen-ts mobile-test
 
 # Tự nạp biến từ .env (DB_DSN, JWT_SECRET, HTTP_ADDR, OWNER_*, ...) nếu có.
 # Dùng `?=` để biến truyền trên dòng lệnh được ưu tiên: `HTTP_ADDR=:2190 make run`.
@@ -8,8 +8,19 @@ $(foreach v,$(ENV_VARS),$(eval $(v) ?= $(shell sed -n 's/^$(v)=//p' .env)))
 export $(ENV_VARS)
 endif
 
-run:
+run: db-up
 	go run ./cmd/api
+
+# Bật/chờ database trước khi chạy (xem scripts/db-up.sh). Bỏ qua: SKIP_DB_UP=1 make run
+db-up:
+	@bash scripts/db-up.sh
+
+# Dừng API đang nghe cổng HTTP_ADDR (mặc định :2170).
+stop:
+	@port=$${HTTP_ADDR:-:2170}; port=$${port##*:}; \
+	pids=$$(lsof -ti tcp:$$port -sTCP:LISTEN 2>/dev/null || true); \
+	if [ -z "$$pids" ]; then echo "không có process nào nghe cổng $$port"; \
+	else echo "dừng process $$pids trên cổng $$port"; kill $$pids; fi
 
 # Nhập dữ liệu Firebase đã chuyển đổi: make import FILE=../tinh_tien/tools/tinh_tien_admin/export/go/import.sql
 # Cần client `mysql`/`mariadb`, hoặc đặt DB_CONTAINER=<tên container> để chạy qua docker exec.
@@ -39,7 +50,7 @@ lint:
 	go vet ./...
 
 docker-up:
-	docker compose -f deployments/docker-compose.yml up -d
+	docker compose -f deployments/docker-compose.yml up -d --wait
 
 docker-down:
 	docker compose -f deployments/docker-compose.yml down
@@ -47,13 +58,13 @@ docker-down:
 docker-reset:
 	docker compose -f deployments/docker-compose.yml down -v
 
-migrate:
+migrate: db-up
 	go run ./cmd/migrate
 
-migrate-status:
+migrate-status: db-up
 	go run ./cmd/migrate -status
 
-seed:
+seed: db-up
 	go run ./cmd/seed
 
 openapi-validate:

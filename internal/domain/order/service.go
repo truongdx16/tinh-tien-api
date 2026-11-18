@@ -2,6 +2,7 @@ package order
 
 import (
 	"errors"
+	"github.com/google/uuid"
 	"math"
 	"time"
 
@@ -37,7 +38,7 @@ func (r *Repository) Save(o *Order) error {
 
 func (r *Repository) Get(id string) (*Order, error) {
 	var o Order
-	err := r.db.Preload("Customer").Preload("Items").Preload("Payments").First(&o, "id = ?", id).Error
+	err := r.db.Preload("Customer", withDeletedCustomer).Preload("Items").Preload("Payments").First(&o, "id = ?", id).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
@@ -75,7 +76,7 @@ func (r *Repository) List(q ListQuery) ([]Order, int64, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	err := query.Preload("Customer").Preload("Items").Order("created_at desc").Offset(offset).Limit(limit).Find(&items).Error
+	err := query.Preload("Customer", withDeletedCustomer).Preload("Items").Order("created_at desc").Offset(offset).Limit(limit).Find(&items).Error
 	return items, total, err
 }
 
@@ -88,7 +89,7 @@ func (r *Repository) ListReceivables(page, pageSize int) ([]ReceivableItem, int6
 	}
 	var orders []Order
 	offset := (page - 1) * pageSize
-	err := r.db.Preload("Customer").
+	err := r.db.Preload("Customer", withDeletedCustomer).
 		Where("balance_due > 0 AND status NOT IN ?", []Status{StatusCancelled}).
 		Order("created_at desc").
 		Offset(offset).Limit(pageSize).
@@ -431,6 +432,44 @@ func (s *Service) deductStock(order *Order) error {
 	return nil
 }
 
+// DeleteOrder removes an order (soft delete, with its items and payments),
+// so it leaves history and statistics. Stock the order took out and that was
+// not returned yet (the order was not cancelled) goes back first.
+func (s *Service) DeleteOrder(id string) error {
+	if _, err := uuid.Parse(id); err != nil {
+		return ErrNotFound
+	}
+	order, err := s.repo.Get(id)
+	if err != nil {
+		return err
+	}
+	return s.repo.WithTx(func(tx *gorm.DB) error {
+		if order.Status != StatusCancelled && s.invSvc != nil {
+			ref := order.ID.String()
+			deducted, err := s.invSvc.HasMovement(ref, inventory.MovementSale)
+			if err != nil {
+				return err
+			}
+			returned, err := s.invSvc.HasMovement(ref, inventory.MovementReturn)
+			if err != nil {
+				return err
+			}
+			if deducted && !returned {
+				if err := s.restock(order); err != nil {
+					return err
+				}
+			}
+		}
+		if err := tx.Where("order_id = ?", id).Delete(&OrderItem{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("order_id = ?", id).Delete(&Payment{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&Order{}, "id = ?", id).Error
+	})
+}
+
 func (s *Service) restock(order *Order) error {
 	for _, item := range order.Items {
 		ref := order.ID.String()
@@ -470,3 +509,7 @@ func canTransition(from, to Status) bool {
 		return false
 	}
 }
+
+// withDeletedCustomer loads an order's customer even after the customer was
+// (soft) deleted, so old orders keep showing who bought.
+func withDeletedCustomer(db *gorm.DB) *gorm.DB { return db.Unscoped() }

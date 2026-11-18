@@ -9,6 +9,10 @@ import (
 
 var ErrNotFound = errors.New("customer not found")
 
+// ErrWalkInProtected: the walk-in customer is used by every counter sale and
+// cannot be deleted.
+var ErrWalkInProtected = errors.New("walk-in customer cannot be deleted")
+
 // WalkInCode is the walk-in customer identifier used by the Flutter client
 // (Customer.id defaults to "CUS-0001" in the app).
 const WalkInCode = "CUS-0001"
@@ -161,7 +165,16 @@ func (s *Service) EnsureWalkIn() error {
 	return nil
 }
 
+// Delete soft-deletes a customer (orders keep their customer_id, so history
+// and statistics still show the name). The walk-in customer is protected.
 func (s *Service) Delete(id string) error {
+	c, err := s.repo.Get(id)
+	if err != nil {
+		return err
+	}
+	if c.IsWalkIn || c.Code == WalkInCode {
+		return ErrWalkInProtected
+	}
 	return s.repo.Delete(id)
 }
 

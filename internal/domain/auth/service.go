@@ -15,7 +15,14 @@ var (
 	ErrInvalidCredentials = errors.New("invalid username or password")
 	ErrUserInactive       = errors.New("user is inactive")
 	ErrUserNotFound       = errors.New("user not found")
+	// ErrWrongPassword: the current password given to ChangePassword is wrong.
+	ErrWrongPassword = errors.New("current password is wrong")
+	// ErrWeakPassword: the new password is too short or equals the old one.
+	ErrWeakPassword = errors.New("new password is too weak")
 )
+
+// MinPasswordLength is the shortest password accepted.
+const MinPasswordLength = 6
 
 type Claims struct {
 	UserID   string `json:"user_id"`
@@ -195,6 +202,28 @@ func (s *Service) UpdateUser(id string, req UpdateUserRequest) (*User, error) {
 		return nil, err
 	}
 	return user, nil
+}
+
+// ChangePassword sets a new password for userID after checking the current
+// one. The new password must have MinPasswordLength characters and differ
+// from the current one.
+func (s *Service) ChangePassword(userID, current, next string) error {
+	user, err := s.repo.FindByID(userID)
+	if err != nil {
+		return err
+	}
+	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(current)) != nil {
+		return ErrWrongPassword
+	}
+	if len([]rune(next)) < MinPasswordLength || next == current {
+		return ErrWeakPassword
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(next), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	user.PasswordHash = string(hash)
+	return s.repo.Update(user)
 }
 
 func (s *Service) EnsureDefaultOwner(username, password, fullName string) error {

@@ -88,6 +88,15 @@ Chuyển dữ liệu từ Firebase: xem [docs/firebase-import.md](docs/firebase-
 - `make migrate` — apply pending DB migrations (code-only, versioned)
 - `make migrate-status` — show applied/pending migrations
 - `make seed` — seed default data (run once after migrate)
-- `make run` — start API (runs migrations on startup)
+- `make run` — start API (runs migrations on startup). Runs `make db-up` first.
+- `make db-up` — make sure the database is up (`scripts/db-up.sh`): opens Docker
+  Desktop if needed, starts `DB_CONTAINER` (or docker compose), sets it to
+  auto-restart, checks the `DB_DSN` port matches, waits until it accepts
+  connections. `migrate`, `migrate-status` and `seed` run it too.
+  Skip with `SKIP_DB_UP=1` for a database outside Docker.
+- `make stop` — stop the API listening on `HTTP_ADDR` (fixes "port already in use")
 - `make test` — run tests
 - `make docker-up` — start MariaDB
+
+The API itself also waits for the database for `DB_CONNECT_TIMEOUT` (default
+`30s`) and prints a hint with the host/port when it cannot connect.

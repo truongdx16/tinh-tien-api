@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -45,10 +47,21 @@ func main() {
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
 
+	// Bind first so "listening" is only logged once the port is ours, and a
+	// busy port fails with a clear message instead of after the log line.
+	ln, err := net.Listen("tcp", cfg.Server.Addr)
+	if err != nil {
+		if errors.Is(err, syscall.EADDRINUSE) {
+			log.Fatalf("listen %s: port already in use (another API instance?).\n"+
+				"hint: run `make stop` to stop it, or set HTTP_ADDR to another port, e.g. HTTP_ADDR=:2190 make run", cfg.Server.Addr)
+		}
+		log.Fatalf("listen %s: %v", cfg.Server.Addr, err)
+	}
+
 	go func() {
 		log.Printf("server listening on %s (docs: http://localhost%s/docs)", cfg.Server.Addr, cfg.Server.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %v", err)
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("serve: %v", err)
 		}
 	}()
 

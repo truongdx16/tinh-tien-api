@@ -138,6 +138,28 @@ func (h *CustomerMobileHandler) Update(w http.ResponseWriter, r *http.Request) {
 	adapter.OK(w, "customer updated", toCustomerDto(*c))
 }
 
+// Delete soft-deletes a customer. Their orders stay (history and statistics
+// keep the name); the walk-in customer cannot be deleted.
+func (h *CustomerMobileHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, err := h.svc.ResolveID(chi.URLParam(r, "id"))
+	if err != nil {
+		adapter.Fail(w, http.StatusNotFound, "Không tìm thấy khách hàng")
+		return
+	}
+	if err := h.svc.Delete(id); err != nil {
+		switch {
+		case errors.Is(err, customer.ErrNotFound):
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy khách hàng")
+		case errors.Is(err, customer.ErrWalkInProtected):
+			adapter.Fail(w, http.StatusConflict, "Không thể xoá khách vãng lai")
+		default:
+			adapter.Fail(w, http.StatusInternalServerError, "Không xoá được khách hàng")
+		}
+		return
+	}
+	adapter.OK(w, "customer deleted", nil)
+}
+
 // mobileCustomerID returns the id exposed to Flutter: the walk-in customer is
 // always "CUS-0001" (the app compares Customer.id against that constant).
 func mobileCustomerID(c customer.Customer) string {

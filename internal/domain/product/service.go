@@ -2,6 +2,8 @@ package product
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -16,6 +18,31 @@ func mustParseUUID(s string) uuid.UUID {
 }
 
 var ErrNotFound = errors.New("not found")
+
+// ValidationError is a rejected product input; Msg is safe to show users.
+type ValidationError struct{ Msg string }
+
+func (e *ValidationError) Error() string { return e.Msg }
+
+// validateProduct checks what a product must have. Empty name/price are
+// only checked when given (nil = unchanged on update).
+func validateProduct(name *string, price *int64, categoryIDs []string) error {
+	if name != nil && strings.TrimSpace(*name) == "" {
+		return &ValidationError{"Tên sản phẩm không được để trống"}
+	}
+	if name != nil && len([]rune(strings.TrimSpace(*name))) > 128 {
+		return &ValidationError{"Tên sản phẩm tối đa 128 ký tự"}
+	}
+	if price != nil && *price < 0 {
+		return &ValidationError{"Giá bán không được âm"}
+	}
+	for _, id := range categoryIDs {
+		if _, err := uuid.Parse(id); err != nil {
+			return &ValidationError{"Danh mục không hợp lệ"}
+		}
+	}
+	return nil
+}
 
 type Repository struct {
 	db *gorm.DB
@@ -302,6 +329,10 @@ func (s *Service) ListCategories(page, pageSize int) ([]Category, int64, error) 
 }
 
 func (s *Service) CreateProduct(req CreateProductRequest) (*Product, error) {
+	req.Name = strings.TrimSpace(req.Name)
+	if err := validateProduct(&req.Name, &req.SellPrice, req.CategoryIDs); err != nil {
+		return nil, err
+	}
 	p := &Product{
 		CategoryID:  req.CategoryID,
 		UnitID:      req.UnitID,
@@ -326,12 +357,21 @@ func (s *Service) CreateProduct(req CreateProductRequest) (*Product, error) {
 		return nil, err
 	}
 	if len(req.CategoryIDs) > 0 {
-		_ = s.repo.SetProductCategories(p.ID.String(), req.CategoryIDs)
+		if err := s.repo.SetProductCategories(p.ID.String(), req.CategoryIDs); err != nil {
+			return nil, fmt.Errorf("set categories: %w", err)
+		}
 	}
 	return p, nil
 }
 
 func (s *Service) UpdateProduct(id string, req UpdateProductRequest) (*Product, error) {
+	if req.Name != nil {
+		trimmed := strings.TrimSpace(*req.Name)
+		req.Name = &trimmed
+	}
+	if err := validateProduct(req.Name, req.SellPrice, req.CategoryIDs); err != nil {
+		return nil, err
+	}
 	p, err := s.repo.GetProduct(id)
 	if err != nil {
 		return nil, err
@@ -376,12 +416,22 @@ func (s *Service) UpdateProduct(id string, req UpdateProductRequest) (*Product, 
 		return nil, err
 	}
 	if req.CategoryIDs != nil {
-		_ = s.repo.SetProductCategories(id, req.CategoryIDs)
+		if err := s.repo.SetProductCategories(id, req.CategoryIDs); err != nil {
+			return nil, fmt.Errorf("set categories: %w", err)
+		}
 	}
 	return p, nil
 }
 
+// DeleteProduct soft-deletes a product: it leaves the catalog, while past
+// orders keep their own copy of the name and price.
 func (s *Service) DeleteProduct(id string) error {
+	if _, err := uuid.Parse(id); err != nil {
+		return ErrNotFound
+	}
+	if _, err := s.repo.GetProduct(id); err != nil {
+		return err
+	}
 	return s.repo.DeleteProduct(id)
 }
 

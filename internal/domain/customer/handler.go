@@ -84,7 +84,14 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.svc.Delete(id); err != nil {
-		httputil.Fail(w, http.StatusInternalServerError, "failed to delete customer", err.Error())
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httputil.Fail(w, http.StatusNotFound, "customer not found", err.Error())
+		case errors.Is(err, ErrWalkInProtected):
+			httputil.Fail(w, http.StatusConflict, "walk-in customer cannot be deleted", err.Error())
+		default:
+			httputil.Fail(w, http.StatusInternalServerError, "failed to delete customer", err.Error())
+		}
 		return
 	}
 	httputil.OK(w, "customer deleted", nil)

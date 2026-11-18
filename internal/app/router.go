@@ -82,6 +82,7 @@ func NewRouter(h Handlers) http.Handler {
 
 			r.Post("/auth/logout", h.Mobile.Auth.Logout)
 			r.Get("/auth/me", h.Mobile.Auth.Me)
+			r.Post("/auth/change-password", h.Mobile.Auth.ChangePassword)
 			r.Get("/users", h.Mobile.Auth.ListUsers)
 
 			r.Route("/categories", func(r chi.Router) {
@@ -108,6 +109,7 @@ func NewRouter(h Handlers) http.Handler {
 				r.Get("/", h.Mobile.Customer.List)
 				r.Post("/", h.Mobile.Customer.Create)
 				r.Put("/{id}", h.Mobile.Customer.Update)
+				r.Delete("/{id}", h.Mobile.Customer.Delete)
 			})
 
 			r.Route("/orders", func(r chi.Router) {
@@ -117,6 +119,7 @@ func NewRouter(h Handlers) http.Handler {
 				r.Put("/{id}", h.Mobile.Order.Update)
 				r.Patch("/{id}/status", h.Mobile.Order.UpdateStatus)
 				r.Patch("/{id}/cancel", h.Mobile.Order.Cancel)
+				r.Delete("/{id}", h.Mobile.Order.Delete)
 			})
 
 			r.Route("/planting-schedules", func(r chi.Router) {
@@ -136,6 +139,7 @@ func NewRouter(h Handlers) http.Handler {
 				r.Get("/revenue", h.Mobile.Stats.Revenue)
 				r.Get("/products", h.Mobile.Stats.TopProducts)
 				r.Get("/customers", h.Mobile.Stats.Customers)
+				r.Get("/customers/{id}", h.Mobile.Stats.CustomerSummary)
 			})
 
 			r.Route("/feedback", func(r chi.Router) {

@@ -1,6 +1,7 @@
 package mobile
 
 import (
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"strconv"
 	"time"
@@ -51,13 +52,69 @@ type MobileCustomerReportDto struct {
 	Debt         string  `json:"debt"`
 }
 
-type StatsMobileHandler struct {
-	svc *report.Service
-	loc *time.Location
+// MobileCustomerSummaryDto: what one customer bought (money as strings,
+// like the other stats). average_order = revenue / order_count.
+type MobileCustomerSummaryDto struct {
+	CustomerID   string  `json:"customer_id"`
+	OrderCount   int64   `json:"order_count"`
+	Revenue      string  `json:"revenue"`
+	Paid         string  `json:"paid"`
+	Debt         string  `json:"debt"`
+	AverageOrder string  `json:"average_order"`
+	FirstOrderAt *string `json:"first_order_at"`
+	LastOrderAt  *string `json:"last_order_at"`
 }
 
-func NewStatsMobileHandler(svc *report.Service, loc *time.Location) *StatsMobileHandler {
-	return &StatsMobileHandler{svc: svc, loc: loc}
+type StatsMobileHandler struct {
+	svc         *report.Service
+	customerSvc *customer.Service
+	loc         *time.Location
+}
+
+func NewStatsMobileHandler(svc *report.Service, customerSvc *customer.Service, loc *time.Location) *StatsMobileHandler {
+	return &StatsMobileHandler{svc: svc, customerSvc: customerSvc, loc: loc}
+}
+
+// CustomerSummary: GET /stats/customers/{id}?from=&to= (no dates = all time).
+func (h *StatsMobileHandler) CustomerSummary(w http.ResponseWriter, r *http.Request) {
+	rawID := chi.URLParam(r, "id")
+	id, err := h.customerSvc.ResolveID(rawID)
+	if err != nil {
+		adapter.Fail(w, http.StatusNotFound, "Không tìm thấy khách hàng")
+		return
+	}
+	q := r.URL.Query()
+	from, to, err := adapter.DayRange(q.Get("from"), q.Get("to"), h.loc)
+	if err != nil {
+		adapter.Fail(w, http.StatusBadRequest, userMessage(err, "Ngày không hợp lệ"))
+		return
+	}
+	s, err := h.svc.CustomerSummary(id, from, to)
+	if err != nil {
+		adapter.Fail(w, http.StatusInternalServerError, "Không tải được thống kê khách hàng")
+		return
+	}
+	var avg int64
+	if s.OrderCount > 0 {
+		avg = s.Revenue / s.OrderCount
+	}
+	stamp := func(t *time.Time) *string {
+		if t == nil {
+			return nil
+		}
+		v := t.In(h.loc).Format(time.RFC3339)
+		return &v
+	}
+	adapter.OK(w, "customer summary retrieved", MobileCustomerSummaryDto{
+		CustomerID:   rawID,
+		OrderCount:   s.OrderCount,
+		Revenue:      adapter.MoneyStr(s.Revenue),
+		Paid:         adapter.MoneyStr(s.Revenue - s.Debt),
+		Debt:         adapter.MoneyStr(s.Debt),
+		AverageOrder: adapter.MoneyStr(avg),
+		FirstOrderAt: stamp(s.FirstOrderAt),
+		LastOrderAt:  stamp(s.LastOrderAt),
+	})
 }
 
 func (h *StatsMobileHandler) Revenue(w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"tinh-tien-api/internal/domain/auth"
@@ -120,6 +121,20 @@ func (h *OrderMobileHandler) List(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// customer_id: orders of one customer (uuid or the walk-in code).
+	if c := strings.TrimSpace(q.Get("customer_id")); c != "" {
+		id, err := h.customerSvc.ResolveID(c)
+		if err != nil {
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy khách hàng")
+			return
+		}
+		listQ.CustomerID = id
+	}
+	if l := q.Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v < listQ.PageSize {
+			listQ.PageSize = v
+		}
+	}
 	items, _, err := h.svc.List(listQ)
 	if err != nil {
 		adapter.Fail(w, http.StatusInternalServerError, "Không tải được danh sách đơn hàng")
@@ -130,6 +145,25 @@ func (h *OrderMobileHandler) List(w http.ResponseWriter, r *http.Request) {
 		dtos = append(dtos, h.toOrderDto(o))
 	}
 	adapter.OK(w, "orders retrieved", dtos)
+}
+
+// Delete: DELETE /orders/{id}, owner (admin) only. The order leaves history
+// and statistics; stock it took out goes back.
+func (h *OrderMobileHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	claims := auth.FromContext(r.Context())
+	if claims == nil || claims.Role != auth.RoleOwner {
+		adapter.Fail(w, http.StatusForbidden, "Chỉ quản trị viên mới được xoá đơn hàng")
+		return
+	}
+	if err := h.svc.DeleteOrder(chi.URLParam(r, "id")); err != nil {
+		if errors.Is(err, order.ErrNotFound) {
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy đơn hàng")
+			return
+		}
+		adapter.Fail(w, http.StatusInternalServerError, "Không xoá được đơn hàng")
+		return
+	}
+	adapter.OK(w, "Đã xoá đơn hàng", nil)
 }
 
 func (h *OrderMobileHandler) Get(w http.ResponseWriter, r *http.Request) {

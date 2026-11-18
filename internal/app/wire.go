@@ -85,7 +85,7 @@ func BuildHandlers(db *gorm.DB, cfg *config.Config) Handlers {
 			Order:    mobile.NewOrderMobileHandler(orderSvc, customerSvc, loc),
 			Planting: mobile.NewPlantingMobileHandler(plantingSvc, loc),
 			Media:    mobile.NewMediaMobileHandler(mediaSvc, cfg.Media.PublicBaseURL, cfg.Media.UploadDir),
-			Stats:    mobile.NewStatsMobileHandler(reportSvc, loc),
+			Stats:    mobile.NewStatsMobileHandler(reportSvc, customerSvc, loc),
 			Feedback: mobile.NewFeedbackMobileHandler(feedbackSvc),
 		},
 	}
