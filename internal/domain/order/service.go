@@ -14,6 +14,8 @@ import (
 
 var (
 	ErrNotFound            = errors.New("order not found")
+	ErrInvalidClientID     = errors.New("order id must be a uuid")
+	ErrInvalidCreatedAt    = errors.New("order date is too old or in the future")
 	ErrInvalidStatus       = errors.New("invalid status transition")
 	ErrEmptyItems          = errors.New("order must have at least one item")
 	ErrPaymentExceedsTotal = errors.New("payment exceeds balance due")
@@ -132,9 +134,39 @@ func NewService(repo *Repository, productRepo *product.Repository, invSvc *inven
 	return &Service{repo: repo, productRepo: productRepo, invSvc: invSvc}
 }
 
+// CreateIdempotent creates the order, or returns the one already created
+// with the same client-chosen req.ID (existed = true) — so an app retrying a
+// sale after a lost response never records it twice.
+func (s *Service) CreateIdempotent(req CreateOrderRequest, userID string) (o *Order, existed bool, err error) {
+	if req.ID != nil {
+		if _, err := uuid.Parse(*req.ID); err != nil {
+			return nil, false, ErrInvalidClientID
+		}
+		if found, err := s.repo.Get(*req.ID); err == nil {
+			return found, true, nil
+		} else if !errors.Is(err, ErrNotFound) {
+			return nil, false, err
+		}
+	}
+	o, err = s.Create(req, userID)
+	if err != nil && req.ID != nil {
+		// Two retries racing: the other one inserted it first.
+		if found, getErr := s.repo.Get(*req.ID); getErr == nil {
+			return found, true, nil
+		}
+	}
+	return o, false, err
+}
+
 func (s *Service) Create(req CreateOrderRequest, userID string) (*Order, error) {
 	if len(req.Items) == 0 {
 		return nil, ErrEmptyItems
+	}
+	if req.CreatedAt != nil {
+		now := time.Now()
+		if req.CreatedAt.After(now.Add(10*time.Minute)) || req.CreatedAt.Before(now.Add(-MaxBackdate)) {
+			return nil, ErrInvalidCreatedAt
+		}
 	}
 
 	items := make([]OrderItem, 0, len(req.Items))
@@ -173,6 +205,16 @@ func (s *Service) Create(req CreateOrderRequest, userID string) (*Order, error) 
 		BalanceDue:      total - paid,
 		CreatedBy:       userID,
 		Items:           items,
+	}
+	if req.ID != nil {
+		id, err := uuid.Parse(*req.ID)
+		if err != nil {
+			return nil, ErrInvalidClientID
+		}
+		order.ID = id
+	}
+	if req.CreatedAt != nil {
+		order.CreatedAt = req.CreatedAt.UTC()
 	}
 
 	err := s.repo.WithTx(func(tx *gorm.DB) error {

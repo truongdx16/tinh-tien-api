@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -59,7 +60,11 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("server listening on %s (docs: http://localhost%s/docs)", cfg.Server.Addr, cfg.Server.Addr)
+		docsHost := cfg.Server.Addr
+		if strings.HasPrefix(docsHost, ":") {
+			docsHost = "localhost" + docsHost
+		}
+		log.Printf("server listening on %s (docs: http://%s/docs)", cfg.Server.Addr, docsHost)
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("serve: %v", err)
 		}

@@ -74,7 +74,34 @@ func Load(path string) (*Config, error) {
 
 	cfg.applyEnvOverrides()
 	cfg.setDefaults()
+	if err := cfg.validateProduction(os.Getenv("APP_ENV")); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+// validateProduction refuses unsafe settings when APP_ENV=production: a
+// guessable JWT secret lets anyone mint tokens, and plain-http public URLs
+// would be blocked by the app.
+func (c *Config) validateProduction(appEnv string) error {
+	if appEnv != "production" {
+		return nil
+	}
+	var problems []string
+	secret := c.Auth.JWTSecret
+	if len(secret) < 32 || strings.Contains(strings.ToLower(secret), "change-me") {
+		problems = append(problems, "JWT_SECRET must be a random value of at least 32 characters (e.g. `openssl rand -hex 32`)")
+	}
+	if c.Database.DSN == "" {
+		problems = append(problems, "DB_DSN is required")
+	}
+	if !strings.HasPrefix(c.Media.PublicBaseURL, "https://") {
+		problems = append(problems, "PUBLIC_BASE_URL must be the https URL of the API (e.g. https://7b.truongdx.dev)")
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("unsafe production config:\n  - %s", strings.Join(problems, "\n  - "))
+	}
+	return nil
 }
 
 func (c *Config) applyEnvOverrides() {

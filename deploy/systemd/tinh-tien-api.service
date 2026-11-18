@@ -1,0 +1,39 @@
+# Tinh Tien API — systemd unit
+# Installed by `./scripts/deploy.sh setup` as /etc/systemd/system/tinh-tien-api.service
+#   systemctl status tinh-tien-api
+#   journalctl -u tinh-tien-api -f
+[Unit]
+Description=Tinh Tien API (Go)
+After=network-online.target mariadb.service mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tinhtien
+Group=tinhtien
+# `current` → releases/<time>; deploy.sh switches it, rollback points it back.
+WorkingDirectory=/var/www/tinh-tien-api/current
+# DB_DSN, JWT_SECRET, PUBLIC_BASE_URL... (uploaded from .env.production)
+EnvironmentFile=/var/www/tinh-tien-api/.env
+Environment=CONFIG_PATH=/var/www/tinh-tien-api/current/configs/config.yaml
+Environment=OPENAPI_PATH=/var/www/tinh-tien-api/current/api/openapi.yaml
+ExecStart=/var/www/tinh-tien-api/current/bin/api
+Restart=always
+RestartSec=3
+# Give in-flight requests time to finish (the API shuts down gracefully).
+TimeoutStopSec=15
+LimitNOFILE=65536
+
+# Hardening: read-only system, only the uploads folder is writable.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/tinh-tien-api/uploads
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

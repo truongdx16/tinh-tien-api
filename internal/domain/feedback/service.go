@@ -2,6 +2,7 @@ package feedback
 
 import (
 	"gorm.io/gorm"
+	"tinh-tien-api/internal/pkg/model"
 )
 
 type Repository struct {
@@ -35,7 +36,7 @@ func (s *Service) List() ([]Feedback, error) {
 }
 
 func (s *Service) Create(content string, rating *int, fullName, userID string) (*Feedback, error) {
-	f := &Feedback{Content: content, Rating: rating, FullName: fullName, UserID: userID}
+	f := &Feedback{Content: content, Rating: rating, FullName: fullName, UserID: model.OptionalUUID(userID)}
 	if err := s.repo.Create(f); err != nil {
 		return nil, err
 	}

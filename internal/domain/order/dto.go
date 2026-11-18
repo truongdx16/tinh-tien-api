@@ -27,7 +27,16 @@ type CreateOrderRequest struct {
 	Discount        int64              `json:"discount"`
 	// PaidAmount nil = paid in full. Set when the customer pays partially (debt = total - paid).
 	PaidAmount *int64 `json:"paid_amount"`
+	// ID chosen by the client (uuid) so a retried request finds the order it
+	// already created instead of making a second one. Optional.
+	ID *string `json:"id"`
+	// CreatedAt of a sale made offline and sent later; must be within
+	// MaxBackdate. Optional (default: now).
+	CreatedAt *time.Time `json:"created_at"`
 }
+
+// MaxBackdate is how old an offline sale may be when it is finally sent.
+const MaxBackdate = 30 * 24 * time.Hour
 
 type UpdateStatusRequest struct {
 	Status Status `json:"status"`

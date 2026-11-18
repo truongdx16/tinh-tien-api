@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"tinh-tien-api/internal/pkg/model"
 
 	"tinh-tien-api/internal/domain/media"
 	"tinh-tien-api/internal/mobile/adapter"
@@ -20,8 +21,8 @@ type MobileMediaDto struct {
 }
 
 type MediaMobileHandler struct {
-	svc     *media.Service
-	baseURL string // e.g. http://localhost:2170
+	svc       *media.Service
+	baseURL   string // e.g. http://localhost:2170
 	uploadDir string
 }
 
@@ -91,7 +92,7 @@ func (h *MediaMobileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		FileSize:   size,
 		MimeType:   header.Header.Get("Content-Type"),
 		EntityType: entityType,
-		EntityID:   entityID,
+		EntityID:   model.OptionalUUID(entityID),
 	}
 	saved, err := h.svc.Save(m)
 	if err != nil {

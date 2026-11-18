@@ -1,9 +1,9 @@
 package app
 
 import (
+	"gorm.io/gorm"
 	"tinh-tien-api/internal/app/migrations"
 	"tinh-tien-api/internal/pkg/migrate"
-	"gorm.io/gorm"
 )
 
 // Migrate runs versioned database migrations. Safe to call on every startup.

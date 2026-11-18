@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"gorm.io/gorm"
 	"tinh-tien-api/internal/domain/auth"
 	"tinh-tien-api/internal/domain/crop"
 	"tinh-tien-api/internal/domain/customer"
@@ -13,7 +14,6 @@ import (
 	"tinh-tien-api/internal/domain/product"
 	"tinh-tien-api/internal/domain/settings"
 	"tinh-tien-api/internal/pkg/migrate"
-	"gorm.io/gorm"
 )
 
 // All returns ordered migrations. Append new entries when changing the database.
@@ -37,7 +37,68 @@ func All() []migrate.Migration {
 			Name: "int feedback ids, order date indexes",
 			Up:   up003ProductionFixes,
 		},
+		{
+			ID:   "004_uuid_reference_columns",
+			Name: "varchar(36) id references → native uuid (16 bytes)",
+			Up:   up004UUIDReferenceColumns,
+		},
+		{
+			ID:   "005_user_phone",
+			Name: "users.phone (unique, nullable) for phone sign-in",
+			Up:   up005UserPhone,
+		},
 	}
+}
+
+// up005UserPhone adds users.phone: a second way to sign in. Nullable and
+// unique (MariaDB allows many NULLs under a unique index).
+func up005UserPhone(db *gorm.DB) error {
+	exists, err := migrate.ColumnExists(db, "users", "phone")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		if err := migrate.Exec(db, "ALTER TABLE `users` ADD COLUMN `phone` VARCHAR(16) NULL AFTER `username`"); err != nil {
+			return err
+		}
+	}
+	hasIndex, err := migrate.IndexExists(db, "users", "idx_users_phone")
+	if err != nil {
+		return err
+	}
+	if !hasIndex {
+		return migrate.Exec(db, "CREATE UNIQUE INDEX `idx_users_phone` ON `users` (`phone`)")
+	}
+	return nil
+}
+
+// up004UUIDReferenceColumns stores the last two id references kept as text
+// (varchar(36): 37 bytes + the same again in their index) as MariaDB's native
+// uuid type (16 bytes), like every other id. Empty or non-uuid values become
+// NULL first, since the uuid type does not accept them.
+func up004UUIDReferenceColumns(db *gorm.DB) error {
+	const uuidPattern = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+	columns := []struct{ table, column string }{
+		{"media", "entity_id"},
+		{"feedbacks", "user_id"},
+	}
+	for _, c := range columns {
+		dataType, err := migrate.ColumnType(db, c.table, c.column)
+		if err != nil {
+			return err
+		}
+		if dataType == "" || dataType == "uuid" {
+			continue // missing (fresh install creates it as uuid) or already done
+		}
+		if err := migrate.Exec(db, "UPDATE `"+c.table+"` SET `"+c.column+"` = NULL WHERE `"+
+			c.column+"` IS NOT NULL AND `"+c.column+"` NOT REGEXP ?", uuidPattern); err != nil {
+			return err
+		}
+		if err := migrate.Exec(db, "ALTER TABLE `"+c.table+"` MODIFY `"+c.column+"` UUID NULL"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // up003ProductionFixes:
@@ -112,12 +173,12 @@ func up002MobileCompat(db *gorm.DB) error {
 	return db.AutoMigrate(
 		// Existing tables — AutoMigrate adds new columns if not present
 		&auth.User{},
-		&customer.Customer{},   // adds: code, is_walk_in
-		&product.Category{},    // adds: active
-		&product.Unit{},        // new table
-		&product.Product{},     // adds: unit_id, image_url, sensitivity
+		&customer.Customer{},       // adds: code, is_walk_in
+		&product.Category{},        // adds: active
+		&product.Unit{},            // new table
+		&product.Product{},         // adds: unit_id, image_url, sensitivity
 		&product.ProductCategory{}, // many2many pivot
-		&order.Order{},         // adds: discount
+		&order.Order{},             // adds: discount
 		// New tables
 		&planting.PlantingSchedule{},
 		&planting.SprayTask{},

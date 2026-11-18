@@ -11,5 +11,6 @@ type Media struct {
 	FileSize   int64  `gorm:"default:0" json:"file_size"`
 	MimeType   string `gorm:"size:128" json:"mime_type"`
 	EntityType string `gorm:"size:64;index" json:"entity_type"`
-	EntityID   string `gorm:"size:36;index" json:"entity_id"`
+	// Id of the record the file belongs to (e.g. a product); nil when none.
+	EntityID *string `gorm:"type:uuid;index" json:"entity_id"`
 }

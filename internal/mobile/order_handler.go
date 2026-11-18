@@ -58,10 +58,15 @@ type MobileOrderDto struct {
 }
 
 type MobileOrderWriteBody struct {
-	ID         *string  `json:"id"`
-	CustomerID *string  `json:"customer_id"`
-	Discount   float64  `json:"discount"`
-	PaidAmount *float64 `json:"paid_amount"` // omitted by Flutter when paid in full
+	ID *string `json:"id"`
+	// ClientID: uuid made by the app for this sale; sending it again returns
+	// the order already created (offline sync / retries never duplicate).
+	ClientID *string `json:"client_id"`
+	// CreatedAt: when the sale happened, for orders sent after being offline.
+	CreatedAt  *time.Time `json:"created_at"`
+	CustomerID *string    `json:"customer_id"`
+	Discount   float64    `json:"discount"`
+	PaidAmount *float64   `json:"paid_amount"` // omitted by Flutter when paid in full
 	Items      []struct {
 		ProductID string  `json:"product_id"`
 		Quantity  float64 `json:"quantity"`
@@ -199,7 +204,9 @@ func (h *OrderMobileHandler) Create(w http.ResponseWriter, r *http.Request) {
 		customerID = &id
 	}
 
-	o, err := h.svc.Create(order.CreateOrderRequest{
+	o, existed, err := h.svc.CreateIdempotent(order.CreateOrderRequest{
+		ID:         body.ClientID,
+		CreatedAt:  body.CreatedAt,
 		CustomerID: customerID,
 		Items:      body.orderItems(),
 		// POS sale: completed immediately (matches imported history, Flutter status 2).
@@ -211,6 +218,10 @@ func (h *OrderMobileHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}, userID)
 	if err != nil {
 		adapter.Fail(w, http.StatusBadRequest, userMessage(err, "Không tạo được đơn hàng"))
+		return
+	}
+	if existed {
+		adapter.OK(w, "order already created", h.toOrderDto(*o))
 		return
 	}
 	adapter.Created(w, "order created", h.toOrderDto(*o))

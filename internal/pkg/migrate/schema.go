@@ -58,3 +58,14 @@ func DropIndexIfExists(db *gorm.DB, table, index string) error {
 func Exec(db *gorm.DB, sql string, args ...any) error {
 	return db.Exec(sql, args...).Error
 }
+
+// ColumnType returns the column's DATA_TYPE (e.g. "varchar", "uuid"), "" when
+// the column does not exist.
+func ColumnType(db *gorm.DB, table, column string) (string, error) {
+	var dataType string
+	err := db.Raw(`
+		SELECT DATA_TYPE FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+	`, table, column).Scan(&dataType).Error
+	return dataType, err
+}

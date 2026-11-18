@@ -1,18 +1,20 @@
 package app
 
 import (
+	"gorm.io/gorm"
 	"tinh-tien-api/internal/domain/auth"
 	"tinh-tien-api/internal/domain/customer"
 	"tinh-tien-api/internal/domain/product"
 	"tinh-tien-api/internal/domain/settings"
 	"tinh-tien-api/internal/pkg/config"
-	"gorm.io/gorm"
 )
 
 type SeedOptions struct {
 	OwnerUsername string
 	OwnerPassword string
 	OwnerFullName string
+	// OwnerPhone also signs the owner in (optional, any common format).
+	OwnerPhone string
 }
 
 func DefaultSeedOptions() SeedOptions {
@@ -29,7 +31,7 @@ func Seed(db *gorm.DB, cfg *config.Config, opts SeedOptions) error {
 	}
 
 	authSvc := auth.NewService(auth.NewRepository(db), cfg.Auth.JWTSecret, cfg.Auth.TokenTTL)
-	if err := authSvc.EnsureDefaultOwner(opts.OwnerUsername, opts.OwnerPassword, opts.OwnerFullName); err != nil {
+	if err := authSvc.EnsureDefaultOwner(opts.OwnerUsername, opts.OwnerPassword, opts.OwnerFullName, opts.OwnerPhone); err != nil {
 		return err
 	}
 

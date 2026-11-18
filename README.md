@@ -83,6 +83,10 @@ Follows a pragmatic subset of [golang-standards/project-layout](https://github.c
 
 Chuyển dữ liệu từ Firebase: xem [docs/firebase-import.md](docs/firebase-import.md).
 
+## Deploy
+
+VPS (không Docker, nginx + systemd, domain `7b.truongdx.dev`): xem [deploy/README.md](deploy/README.md) — `make deploy`.
+
 ## Make targets
 
 - `make migrate` — apply pending DB migrations (code-only, versioned)

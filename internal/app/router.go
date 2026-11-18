@@ -20,16 +20,16 @@ import (
 )
 
 type Handlers struct {
-	Auth     *auth.Handler
-	Product  *product.Handler
-	Customer *customer.Handler
+	Auth      *auth.Handler
+	Product   *product.Handler
+	Customer  *customer.Handler
 	Inventory *inventory.Handler
-	Order    *order.Handler
-	Crop     *crop.Handler
-	Expense  *expense.Handler
-	Report   *report.Handler
-	Settings *settings.Handler
-	AuthSvc  *auth.Service
+	Order     *order.Handler
+	Crop      *crop.Handler
+	Expense   *expense.Handler
+	Report    *report.Handler
+	Settings  *settings.Handler
+	AuthSvc   *auth.Service
 	// UploadDir is served at /uploads/* (media uploaded by the app).
 	UploadDir string
 	Mobile    MobileHandlers
@@ -82,6 +82,7 @@ func NewRouter(h Handlers) http.Handler {
 
 			r.Post("/auth/logout", h.Mobile.Auth.Logout)
 			r.Get("/auth/me", h.Mobile.Auth.Me)
+			r.Put("/auth/me", h.Mobile.Auth.UpdateMe)
 			r.Post("/auth/change-password", h.Mobile.Auth.ChangePassword)
 			r.Get("/users", h.Mobile.Auth.ListUsers)
 

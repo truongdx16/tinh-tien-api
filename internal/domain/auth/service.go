@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -19,6 +20,10 @@ var (
 	ErrWrongPassword = errors.New("current password is wrong")
 	// ErrWeakPassword: the new password is too short or equals the old one.
 	ErrWeakPassword = errors.New("new password is too weak")
+	// ErrInvalidPhone: not a Vietnamese phone number.
+	ErrInvalidPhone = errors.New("invalid phone number")
+	// ErrPhoneTaken: another account already signs in with this phone.
+	ErrPhoneTaken = errors.New("phone number already used")
 )
 
 // MinPasswordLength is the shortest password accepted.
@@ -49,6 +54,34 @@ func (r *Repository) FindByUsername(username string) (*User, error) {
 		return nil, ErrUserNotFound
 	}
 	return &user, nil
+}
+
+// FindByLogin finds the account for what was typed on the login screen: a
+// phone number (any common format) or a username. A phone-looking value that
+// matches no phone is still tried as a username.
+func (r *Repository) FindByLogin(login string) (*User, error) {
+	login = strings.TrimSpace(login)
+	if phone, ok := NormalizePhone(login); ok {
+		var user User
+		if err := r.db.Where("phone = ?", phone).Limit(1).Find(&user).Error; err != nil {
+			return nil, err
+		}
+		if user.ID != uuid.Nil {
+			return &user, nil
+		}
+	}
+	return r.FindByUsername(login)
+}
+
+// phoneUsedByOther reports whether another account than userID has phone.
+func (r *Repository) phoneUsedByOther(phone, userID string) (bool, error) {
+	var count int64
+	q := r.db.Model(&User{}).Where("phone = ?", phone)
+	if userID != "" {
+		q = q.Where("id <> ?", userID)
+	}
+	err := q.Count(&count).Error
+	return count > 0, err
 }
 
 func (r *Repository) FindByID(id string) (*User, error) {
@@ -102,7 +135,7 @@ func NewService(repo *Repository, jwtSecret string, tokenTTL time.Duration) *Ser
 }
 
 func (s *Service) Login(req LoginRequest) (*LoginResponse, error) {
-	user, err := s.repo.FindByUsername(req.Username)
+	user, err := s.repo.FindByLogin(req.Username)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			return nil, ErrInvalidCredentials
@@ -163,6 +196,11 @@ func (s *Service) CreateUser(req CreateUserRequest) (*User, error) {
 		Role:         role,
 		Active:       true,
 	}
+	if req.Phone != nil {
+		if user.Phone, err = s.checkPhone(*req.Phone, ""); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.repo.Create(user); err != nil {
 		return nil, err
 	}
@@ -184,6 +222,11 @@ func (s *Service) UpdateUser(id string, req UpdateUserRequest) (*User, error) {
 	}
 	if req.FullName != nil {
 		user.FullName = *req.FullName
+	}
+	if req.Phone != nil {
+		if user.Phone, err = s.checkPhone(*req.Phone, id); err != nil {
+			return nil, err
+		}
 	}
 	if req.Role != nil {
 		user.Role = *req.Role
@@ -226,21 +269,60 @@ func (s *Service) ChangePassword(userID, current, next string) error {
 	return s.repo.Update(user)
 }
 
-func (s *Service) EnsureDefaultOwner(username, password, fullName string) error {
-	_, err := s.repo.FindByUsername(username)
+// EnsureDefaultOwner creates the owner account when missing. phone (may be
+// empty) is set on a new owner, and on an existing owner without a phone.
+func (s *Service) EnsureDefaultOwner(username, password, fullName, phone string) error {
+	existing, err := s.repo.FindByUsername(username)
 	if err == nil {
-		return nil
+		if phone != "" && existing.Phone == nil {
+			_, err = s.UpdateUser(existing.ID.String(), UpdateUserRequest{Phone: &phone})
+		}
+		return err
 	}
 	if !errors.Is(err, ErrUserNotFound) {
 		return err
 	}
-	_, err = s.CreateUser(CreateUserRequest{
+	req := CreateUserRequest{
 		Username: username,
 		Password: password,
 		FullName: fullName,
 		Role:     RoleOwner,
-	})
+	}
+	if phone != "" {
+		req.Phone = &phone
+	}
+	_, err = s.CreateUser(req)
 	return err
+}
+
+// UpdateProfile lets a signed-in user change their own name and phone (not
+// role or active state). nil leaves a field unchanged; phone "" removes it.
+func (s *Service) UpdateProfile(userID string, fullName, phone *string) (*User, error) {
+	if fullName != nil {
+		trimmed := strings.TrimSpace(*fullName)
+		fullName = &trimmed
+	}
+	return s.UpdateUser(userID, UpdateUserRequest{FullName: fullName, Phone: phone})
+}
+
+// checkPhone validates and normalises a phone for userID ("" for a new user):
+// "" → nil (no phone), otherwise ErrInvalidPhone / ErrPhoneTaken.
+func (s *Service) checkPhone(raw, userID string) (*string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	phone, ok := NormalizePhone(raw)
+	if !ok {
+		return nil, ErrInvalidPhone
+	}
+	taken, err := s.repo.phoneUsedByOther(phone, userID)
+	if err != nil {
+		return nil, err
+	}
+	if taken {
+		return nil, ErrPhoneTaken
+	}
+	return &phone, nil
 }
 
 func (s *Service) generateToken(user *User) (string, time.Time, error) {
@@ -264,6 +346,7 @@ func toUserResponse(u *User) UserResponse {
 	return UserResponse{
 		ID:       u.ID.String(),
 		Username: u.Username,
+		Phone:    u.Phone,
 		FullName: u.FullName,
 		Role:     u.Role,
 	}

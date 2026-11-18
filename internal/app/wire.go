@@ -1,6 +1,7 @@
 package app
 
 import (
+	"gorm.io/gorm"
 	"tinh-tien-api/internal/domain/auth"
 	"tinh-tien-api/internal/domain/crop"
 	"tinh-tien-api/internal/domain/customer"
@@ -15,7 +16,6 @@ import (
 	"tinh-tien-api/internal/domain/settings"
 	"tinh-tien-api/internal/mobile"
 	"tinh-tien-api/internal/pkg/config"
-	"gorm.io/gorm"
 )
 
 func BuildHandlers(db *gorm.DB, cfg *config.Config) Handlers {

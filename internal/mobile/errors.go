@@ -24,6 +24,8 @@ var domainMessages = []struct {
 	{order.ErrOrderClosed, "Đơn hàng đã hoàn thành hoặc đã huỷ, không thể sửa"},
 	{order.ErrPaymentExceedsTotal, "Số tiền thanh toán vượt quá số tiền còn nợ"},
 	{order.ErrNotFound, "Không tìm thấy đơn hàng"},
+	{order.ErrInvalidClientID, "Mã đơn hàng không hợp lệ"},
+	{order.ErrInvalidCreatedAt, "Ngày bán của đơn không hợp lệ (quá cũ hoặc ở tương lai)"},
 	{product.ErrNotFound, "Không tìm thấy sản phẩm"},
 	{customer.ErrNotFound, "Không tìm thấy khách hàng"},
 	{inventory.ErrInsufficient, "Không đủ hàng trong kho"},

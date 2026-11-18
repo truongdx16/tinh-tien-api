@@ -12,7 +12,7 @@ func TestServiceLoginAndToken(t *testing.T) {
 	repo := auth.NewRepository(db)
 	svc := auth.NewService(repo, "test-secret", time.Hour)
 
-	if err := svc.EnsureDefaultOwner("testowner", "password123", "Test Owner"); err != nil {
+	if err := svc.EnsureDefaultOwner("testowner", "password123", "Test Owner", ""); err != nil {
 		t.Fatalf("ensure owner: %v", err)
 	}
 
@@ -37,7 +37,7 @@ func TestServiceInvalidLogin(t *testing.T) {
 	db := setupTestDB(t)
 	repo := auth.NewRepository(db)
 	svc := auth.NewService(repo, "test-secret", time.Hour)
-	_ = svc.EnsureDefaultOwner("testowner", "password123", "Test Owner")
+	_ = svc.EnsureDefaultOwner("testowner", "password123", "Test Owner", "")
 
 	_, err := svc.Login(auth.LoginRequest{Username: "testowner", Password: "wrong"})
 	if err == nil {

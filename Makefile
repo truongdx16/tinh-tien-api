@@ -1,4 +1,4 @@
-.PHONY: run stop db-up build test lint tidy docker-up docker-down docker-reset migrate migrate-status seed import openapi-validate openapi-ui openapi-gen-ts mobile-test
+.PHONY: deploy deploy-setup deploy-rollback deploy-status deploy-logs run stop db-up build test lint tidy docker-up docker-down docker-reset migrate migrate-status seed import openapi-validate openapi-ui openapi-gen-ts mobile-test
 
 # Tự nạp biến từ .env (DB_DSN, JWT_SECRET, HTTP_ADDR, OWNER_*, ...) nếu có.
 # Dùng `?=` để biến truyền trên dòng lệnh được ưu tiên: `HTTP_ADDR=:2190 make run`.
@@ -100,3 +100,19 @@ openapi-gen-ts:
 		-o /local/clients/typescript \
 		--additional-properties=supportsES6=true,npmName=tinh-tien-api-client
 	@echo "Generated: clients/typescript/"
+
+# ---- Deploy lên VPS (xem deploy/README.md) ----
+deploy:
+	@./scripts/deploy.sh
+
+deploy-setup:
+	@./scripts/deploy.sh setup
+
+deploy-rollback:
+	@./scripts/deploy.sh rollback
+
+deploy-status:
+	@./scripts/deploy.sh status
+
+deploy-logs:
+	@./scripts/deploy.sh logs

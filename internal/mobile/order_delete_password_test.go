@@ -18,6 +18,7 @@ import (
 	"tinh-tien-api/internal/domain/customer"
 	"tinh-tien-api/internal/domain/inventory"
 	"tinh-tien-api/internal/domain/order"
+	"tinh-tien-api/internal/domain/product"
 )
 
 func openTestDB(t *testing.T, models ...any) *gorm.DB {
@@ -166,5 +167,123 @@ func TestChangePassword(t *testing.T) {
 	}
 	if _, err := svc.Login(auth.LoginRequest{Username: "chu", Password: "new-pass-1"}); err != nil {
 		t.Errorf("new password rejected: %v", err)
+	}
+}
+
+func TestPhoneSignInAndUpdateMe(t *testing.T) {
+	db := openTestDB(t, &auth.User{})
+	svc := auth.NewService(auth.NewRepository(db), "test-secret", time.Hour)
+	user, err := svc.CreateUser(auth.CreateUserRequest{Username: "admin", Password: "secret-123", Role: auth.RoleOwner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewAuthMobileHandler(svc)
+	call := func(handler http.HandlerFunc, method string, body any) (int, map[string]any) {
+		b, _ := json.Marshal(body)
+		req := asUser(httptest.NewRequest(method, "/", bytes.NewReader(b)), user.ID.String(), auth.RoleOwner)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler(w, req)
+		var out map[string]any
+		_ = json.NewDecoder(w.Body).Decode(&out)
+		return w.Code, out
+	}
+	login := func(id string) int {
+		code, _ := call(h.Login, http.MethodPost, map[string]string{"email": id, "password": "secret-123", "device_name": "t"})
+		return code
+	}
+
+	if code := login("0912345678"); code != http.StatusUnauthorized {
+		t.Fatalf("phone login before a phone is set: %d", code)
+	}
+	code, body := call(h.UpdateMe, http.MethodPut, map[string]string{"phone": "+84 912 345 678"})
+	if code != http.StatusOK {
+		t.Fatalf("update me: %d %v", code, body)
+	}
+	if phone := body["data"].(map[string]any)["phone"]; phone != "0912345678" {
+		t.Errorf("phone in response = %v", phone)
+	}
+	if code := login("0912 345 678"); code != http.StatusOK {
+		t.Errorf("phone login: %d", code)
+	}
+	if code := login("admin"); code != http.StatusOK {
+		t.Errorf("username login still works: %d", code)
+	}
+	if code, body = call(h.UpdateMe, http.MethodPut, map[string]string{"phone": "abc"}); code != http.StatusBadRequest {
+		t.Errorf("invalid phone: %d %v", code, body)
+	}
+	if code, _ = call(h.UpdateMe, http.MethodPut, map[string]string{"name": "  "}); code != http.StatusBadRequest {
+		t.Errorf("empty name: %d", code)
+	}
+}
+
+func TestCreateOrderIsIdempotentWithClientID(t *testing.T) {
+	db := openTestDB(t, &customer.Customer{}, &product.Category{}, &product.Unit{}, &product.Product{},
+		&product.ProductCategory{}, &order.Order{}, &order.OrderItem{}, &order.Payment{})
+	p := product.Product{Name: "Rau", SellPrice: 10000, Active: true}
+	if err := db.Create(&p).Error; err != nil {
+		t.Fatal(err)
+	}
+	orderSvc := order.NewService(order.NewRepository(db), product.NewRepository(db), nil)
+	h := NewOrderMobileHandler(orderSvc, customer.NewService(customer.NewRepository(db)), time.UTC)
+	post := func(body map[string]any) (int, map[string]any) {
+		b, _ := json.Marshal(body)
+		req := asUser(httptest.NewRequest(http.MethodPost, "/orders", bytes.NewReader(b)), uuid.NewString(), auth.RoleStaff)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.Create(w, req)
+		var out map[string]any
+		_ = json.NewDecoder(w.Body).Decode(&out)
+		return w.Code, out
+	}
+	clientID := uuid.NewString()
+	soldAt := time.Now().Add(-26 * time.Hour).UTC().Truncate(time.Second)
+	body := map[string]any{
+		"client_id":  clientID,
+		"created_at": soldAt.Format(time.RFC3339),
+		"items":      []map[string]any{{"product_id": p.ID.String(), "quantity": 2}},
+	}
+
+	code, out := post(body)
+	if code != http.StatusCreated {
+		t.Fatalf("first send: %d %v", code, out)
+	}
+	if id := out["data"].(map[string]any)["id"]; id != clientID {
+		t.Errorf("order id = %v, want the client id %s", id, clientID)
+	}
+	// The same sale sent again (lost response, offline sync retry).
+	if code, out = post(body); code != http.StatusOK {
+		t.Fatalf("retry: %d %v", code, out)
+	}
+	var count int64
+	db.Model(&order.Order{}).Count(&count)
+	if count != 1 {
+		t.Fatalf("orders = %d, want 1 (no duplicate)", count)
+	}
+	var saved order.Order
+	db.First(&saved, "id = ?", clientID)
+	if !saved.CreatedAt.Equal(soldAt) {
+		t.Errorf("created_at = %v, want the offline sale time %v", saved.CreatedAt, soldAt)
+	}
+
+	for name, at := range map[string]time.Time{
+		"too old":   time.Now().Add(-40 * 24 * time.Hour),
+		"in future": time.Now().Add(2 * time.Hour),
+	} {
+		body["client_id"] = uuid.NewString()
+		body["created_at"] = at.Format(time.RFC3339)
+		if code, out = post(body); code != http.StatusBadRequest {
+			t.Errorf("%s: %d %v", name, code, out)
+		}
+	}
+	body["client_id"] = "not-a-uuid"
+	delete(body, "created_at")
+	if code, _ = post(body); code != http.StatusBadRequest {
+		t.Errorf("bad client id: %d", code)
+	}
+	// Without client_id it still works as before.
+	delete(body, "client_id")
+	if code, _ = post(body); code != http.StatusCreated {
+		t.Errorf("plain create: %d", code)
 	}
 }

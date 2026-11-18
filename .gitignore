@@ -6,8 +6,14 @@ clients/
 .env
 .env.*
 !.env.example
+!.env.production.example
 vendor/
 .idea/
 .vscode/
 *.log
 .DS_Store
+
+# Deploy (local secrets and logs)
+scripts/deploy.config.env
+deploy/logs/
+deploy/.build/

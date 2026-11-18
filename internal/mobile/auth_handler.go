@@ -23,6 +23,7 @@ type MobileUserDto struct {
 	ID      string  `json:"id"`
 	Name    string  `json:"name"`
 	Email   string  `json:"email"`
+	Phone   *string `json:"phone"`
 	StoreID *string `json:"store_id"`
 	Role    string  `json:"role"`
 	Status  int     `json:"status"`
@@ -48,12 +49,12 @@ func (h *AuthMobileHandler) Login(w http.ResponseWriter, r *http.Request) {
 		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
 		return
 	}
-	// Flutter sends email field; we use it as username.
+	// Flutter sends the "email" field: a username or a phone number.
 	resp, err := h.svc.Login(auth.LoginRequest{Username: strings.TrimSpace(req.Email), Password: req.Password})
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrInvalidCredentials):
-			adapter.Fail(w, http.StatusUnauthorized, "Sai email hoặc mật khẩu")
+			adapter.Fail(w, http.StatusUnauthorized, "Sai tên đăng nhập, số điện thoại hoặc mật khẩu")
 		case errors.Is(err, auth.ErrUserInactive):
 			adapter.Fail(w, http.StatusForbidden, "Tài khoản đã bị khoá")
 		default:
@@ -84,6 +85,41 @@ func (h *AuthMobileHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	adapter.OK(w, "user retrieved", userToMobileDto(user))
+}
+
+// UpdateMe: PUT /auth/me {"name": "...", "phone": "..."} — the signed-in
+// user's own name and sign-in phone. Omitted fields stay; phone "" removes it.
+func (h *AuthMobileHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	claims := auth.FromContext(r.Context())
+	if claims == nil {
+		adapter.Fail(w, http.StatusUnauthorized, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại")
+		return
+	}
+	var body struct {
+		Name  *string `json:"name"`
+		Phone *string `json:"phone"`
+	}
+	if err := httputil.Decode(r, &body); err != nil {
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu gửi lên không hợp lệ")
+		return
+	}
+	if body.Name != nil && strings.TrimSpace(*body.Name) == "" {
+		adapter.Fail(w, http.StatusBadRequest, "Tên không được để trống")
+		return
+	}
+	user, err := h.svc.UpdateProfile(claims.UserID, body.Name, body.Phone)
+	switch {
+	case err == nil:
+		adapter.OK(w, "Đã cập nhật tài khoản", userToMobileDto(user))
+	case errors.Is(err, auth.ErrInvalidPhone):
+		adapter.Fail(w, http.StatusBadRequest, "Số điện thoại không hợp lệ")
+	case errors.Is(err, auth.ErrPhoneTaken):
+		adapter.Fail(w, http.StatusConflict, "Số điện thoại đã được dùng cho tài khoản khác")
+	case errors.Is(err, auth.ErrUserNotFound):
+		adapter.Fail(w, http.StatusNotFound, "Không tìm thấy người dùng")
+	default:
+		adapter.Fail(w, http.StatusInternalServerError, "Không cập nhật được tài khoản")
+	}
 }
 
 // ChangePassword: POST /auth/change-password
@@ -136,6 +172,7 @@ func toMobileUserDto(u auth.UserResponse) MobileUserDto {
 		ID:      u.ID,
 		Name:    u.FullName,
 		Email:   u.Username,
+		Phone:   u.Phone,
 		StoreID: nil,
 		Role:    string(u.Role),
 		Status:  1,
@@ -148,6 +185,7 @@ func userToMobileDto(u *auth.User) MobileUserDto {
 		ID:      u.ID.String(),
 		Name:    u.FullName,
 		Email:   u.Username,
+		Phone:   u.Phone,
 		StoreID: nil,
 		Role:    string(u.Role),
 		Status:  status,

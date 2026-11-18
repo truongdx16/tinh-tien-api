@@ -3,6 +3,8 @@ package auth_test
 import (
 	"testing"
 
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 	"tinh-tien-api/internal/domain/auth"
 	"tinh-tien-api/internal/domain/customer"
 	"tinh-tien-api/internal/domain/expense"
@@ -10,8 +12,6 @@ import (
 	"tinh-tien-api/internal/domain/order"
 	"tinh-tien-api/internal/domain/product"
 	"tinh-tien-api/internal/domain/settings"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 )
 
 func setupTestDB(t *testing.T) *gorm.DB {

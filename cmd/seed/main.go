@@ -41,6 +41,9 @@ func main() {
 	if v := os.Getenv("OWNER_USERNAME"); v != "" {
 		opts.OwnerUsername = v
 	}
+	if v := os.Getenv("OWNER_PHONE"); v != "" {
+		opts.OwnerPhone = v
+	}
 	if v := os.Getenv("OWNER_FULL_NAME"); v != "" {
 		opts.OwnerFullName = v
 	}
