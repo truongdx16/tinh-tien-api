@@ -95,6 +95,7 @@ func BuildHandlers(db *gorm.DB, cfg *config.Config) Handlers {
 			Stats:    mobile.NewStatsMobileHandler(reportSvc, customerSvc, loc),
 			Feedback: mobile.NewFeedbackMobileHandler(feedbackSvc),
 			Notify:   mobile.NewNotificationMobileHandler(notifySvc),
+			App:      mobile.NewAppVersionMobileHandler(cfg.Media.UploadDir, cfg.Media.PublicBaseURL),
 		},
 	}
 }

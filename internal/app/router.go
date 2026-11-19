@@ -45,6 +45,7 @@ type MobileHandlers struct {
 	Stats    *mobile.StatsMobileHandler
 	Feedback *mobile.FeedbackMobileHandler
 	Notify   *mobile.NotificationMobileHandler
+	App      *mobile.AppVersionMobileHandler
 }
 
 func NewRouter(h Handlers) http.Handler {
@@ -77,6 +78,8 @@ func NewRouter(h Handlers) http.Handler {
 	// ---- /api/v1  Flutter mobile contract ----
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", h.Mobile.Auth.Login)
+		// Latest Android APK (in-app update); public, no sign-in needed.
+		r.Get("/app/version", h.Mobile.App.Latest)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.AuthMiddleware(h.AuthSvc))
