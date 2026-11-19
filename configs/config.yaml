@@ -8,8 +8,12 @@ database:
   dsn: "tinh_tien:tinh_tien@tcp(localhost:2171)/tinh_tien?charset=utf8mb4&parseTime=True&loc=UTC"
 
 auth:
+  # Ghi đè bằng biến môi trường JWT_SECRET (như DB_DSN cho dsn); production
+  # bắt buộc >= 32 ký tự ngẫu nhiên (openssl rand -hex 32).
   jwt_secret: "change-me-in-production"
-  token_ttl: 24h
+  # Thời hạn đăng nhập: 30 ngày (720h) để người dùng không phải đăng nhập lại
+  # liên tục. Có thể ghi đè bằng biến môi trường TOKEN_TTL (vd: 2160h).
+  token_ttl: 720h
 
 app:
   # Ngày thống kê & bộ lọc from/to theo giờ Việt Nam. DB lưu UTC (DSN loc=UTC).

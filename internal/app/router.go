@@ -113,6 +113,7 @@ func NewRouter(h Handlers) http.Handler {
 			r.Route("/customers", func(r chi.Router) {
 				r.Get("/", h.Mobile.Customer.List)
 				r.Post("/", h.Mobile.Customer.Create)
+				r.Post("/merge", h.Mobile.Customer.Merge)
 				r.Put("/{id}", h.Mobile.Customer.Update)
 				r.Delete("/{id}", h.Mobile.Customer.Delete)
 			})

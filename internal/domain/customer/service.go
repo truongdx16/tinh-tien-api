@@ -17,6 +17,10 @@ var ErrWalkInProtected = errors.New("walk-in customer cannot be deleted")
 // (Customer.id defaults to "CUS-0001" in the app).
 const WalkInCode = "CUS-0001"
 
+// ErrInvalidMerge: nothing to merge, the target is also a source, or a
+// source is the walk-in customer.
+var ErrInvalidMerge = errors.New("invalid customer merge")
+
 type Repository struct {
 	db *gorm.DB
 }
@@ -59,6 +63,54 @@ func (r *Repository) FindIDByCode(code string) (string, error) {
 		return "", ErrNotFound
 	}
 	return c.ID.String(), nil
+}
+
+// Merge moves every order of the source customers to target, fills the
+// target's empty phone/address/notes from them, then soft-deletes the
+// sources (rows stay in the table). One transaction: all or nothing.
+// Returns how many orders were moved.
+func (r *Repository) Merge(target string, sources []string) (int64, error) {
+	var moved int64
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var t Customer
+		if err := tx.First(&t, "id = ?", target).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
+			}
+			return err
+		}
+		var srcs []Customer
+		if err := tx.Where("id IN ?", sources).Order("created_at asc").Find(&srcs).Error; err != nil {
+			return err
+		}
+		if len(srcs) != len(sources) {
+			return ErrNotFound
+		}
+		for _, s := range srcs {
+			if s.IsWalkIn || s.Code == WalkInCode {
+				return ErrInvalidMerge
+			}
+			if t.Phone == "" {
+				t.Phone = s.Phone
+			}
+			if t.Address == "" {
+				t.Address = s.Address
+			}
+			if t.Notes == "" {
+				t.Notes = s.Notes
+			}
+		}
+		res := tx.Table("orders").Where("customer_id IN ?", sources).Update("customer_id", target)
+		if res.Error != nil {
+			return res.Error
+		}
+		moved = res.RowsAffected
+		if err := tx.Save(&t).Error; err != nil {
+			return err
+		}
+		return tx.Where("id IN ?", sources).Delete(&Customer{}).Error
+	})
+	return moved, err
 }
 
 func (r *Repository) ensureWalkIn(svc *Service) error {
@@ -184,4 +236,22 @@ func (s *Service) Get(id string) (*Customer, error) {
 
 func (s *Service) List(q ListQuery) ([]Customer, int64, error) {
 	return s.repo.List(q)
+}
+
+// Merge folds duplicate customers into target: their orders now belong to
+// target and the duplicates are soft-deleted. Ids must be UUIDs.
+func (s *Service) Merge(target string, sources []string) (int64, error) {
+	seen := map[string]bool{target: true}
+	var uniq []string
+	for _, id := range sources {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		uniq = append(uniq, id)
+	}
+	if len(uniq) == 0 {
+		return 0, ErrInvalidMerge
+	}
+	return s.repo.Merge(target, uniq)
 }

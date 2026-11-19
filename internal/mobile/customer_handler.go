@@ -160,6 +160,46 @@ func (h *CustomerMobileHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	adapter.OK(w, "customer deleted", nil)
 }
 
+// Merge folds duplicate customers (same person, spelled differently) into one:
+// their orders move to target_id and the duplicates are soft-deleted.
+func (h *CustomerMobileHandler) Merge(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		TargetID  string   `json:"target_id"`
+		SourceIDs []string `json:"source_ids"`
+	}
+	if err := httputil.Decode(r, &body); err != nil {
+		adapter.Fail(w, http.StatusBadRequest, "Dữ liệu không hợp lệ")
+		return
+	}
+	target, err := h.svc.ResolveID(body.TargetID)
+	if err != nil {
+		adapter.Fail(w, http.StatusNotFound, "Không tìm thấy khách hàng")
+		return
+	}
+	sources := make([]string, 0, len(body.SourceIDs))
+	for _, raw := range body.SourceIDs {
+		id, err := h.svc.ResolveID(raw)
+		if err != nil {
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy khách hàng")
+			return
+		}
+		sources = append(sources, id)
+	}
+	moved, err := h.svc.Merge(target, sources)
+	if err != nil {
+		switch {
+		case errors.Is(err, customer.ErrNotFound):
+			adapter.Fail(w, http.StatusNotFound, "Không tìm thấy khách hàng")
+		case errors.Is(err, customer.ErrInvalidMerge):
+			adapter.Fail(w, http.StatusBadRequest, "Không thể gộp các khách hàng này")
+		default:
+			adapter.Fail(w, http.StatusInternalServerError, "Không gộp được khách hàng")
+		}
+		return
+	}
+	adapter.OK(w, "customers merged", map[string]int64{"moved_orders": moved})
+}
+
 // mobileCustomerID returns the id exposed to Flutter: the walk-in customer is
 // always "CUS-0001" (the app compares Customer.id against that constant).
 func mobileCustomerID(c customer.Customer) string {

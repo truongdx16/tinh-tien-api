@@ -130,6 +130,11 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("JWT_SECRET"); v != "" {
 		c.Auth.JWTSecret = v
 	}
+	if v := os.Getenv("TOKEN_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			c.Auth.TokenTTL = d
+		}
+	}
 	if v := os.Getenv("HTTP_ADDR"); v != "" {
 		c.Server.Addr = v
 	}
@@ -169,7 +174,7 @@ func (c *Config) setDefaults() {
 		c.Server.WriteTimeout = 15 * time.Second
 	}
 	if c.Auth.TokenTTL == 0 {
-		c.Auth.TokenTTL = 24 * time.Hour
+		c.Auth.TokenTTL = 30 * 24 * time.Hour
 	}
 	if c.Shop.Currency == "" {
 		c.Shop.Currency = "VND"

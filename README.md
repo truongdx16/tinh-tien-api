@@ -73,6 +73,7 @@ Follows a pragmatic subset of [golang-standards/project-layout](https://github.c
 | ------------- | ---------------------------- |
 | `DB_DSN`      | MariaDB connection string    |
 | `JWT_SECRET`  | JWT signing secret           |
+| `TOKEN_TTL`   | Token lifetime (default `720h`) |
 | `HTTP_ADDR`   | Server listen address        |
 | `CONFIG_PATH` | Path to YAML config          |
 | `APP_TIMEZONE` | Múi giờ thống kê / lọc ngày (mặc định `Asia/Ho_Chi_Minh`). DSN phải `loc=UTC` |

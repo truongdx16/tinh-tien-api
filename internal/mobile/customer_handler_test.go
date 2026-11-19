@@ -1,6 +1,7 @@
 package mobile
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -54,6 +55,7 @@ func newCustomerFixture(t *testing.T) customerFixture {
 	r := chi.NewRouter()
 	r.Get("/customers", customers.List)
 	r.Delete("/customers/{id}", customers.Delete)
+	r.Post("/customers/merge", customers.Merge)
 	r.Get("/orders", orders.List)
 	r.Get("/stats/customers/{id}", stats.CustomerSummary)
 
@@ -170,5 +172,44 @@ func TestCustomerSummaryAndOrderFilter(t *testing.T) {
 	_, body = f.do(t, http.MethodGet, "/orders?customer_id="+id+"&limit=1")
 	if n := len(body["data"].([]any)); n != 1 {
 		t.Errorf("limit=1 returned %d orders", n)
+	}
+}
+
+func TestMergeCustomers(t *testing.T) {
+	f := newCustomerFixture(t)
+	dup := customer.Customer{Name: "nguyen van thi", Phone: "0999"}
+	if err := f.db.Create(&dup).Error; err != nil {
+		t.Fatal(err)
+	}
+	f.addOrder(t, f.regular.ID.String(), order.StatusDelivered, 10000, 0, time.Now())
+	f.addOrder(t, dup.ID.String(), order.StatusDelivered, 20000, 0, time.Now())
+
+	post := func(target string, sources ...string) int {
+		b, _ := json.Marshal(map[string]any{"target_id": target, "source_ids": sources})
+		req := httptest.NewRequest(http.MethodPost, "/customers/merge", bytes.NewReader(b))
+		w := httptest.NewRecorder()
+		f.router.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	if code := post(f.regular.ID.String(), customer.WalkInCode); code != http.StatusBadRequest {
+		t.Fatalf("merging walk-in: status %d, want 400", code)
+	}
+	if code := post(f.regular.ID.String(), f.regular.ID.String()); code != http.StatusBadRequest {
+		t.Fatalf("merging into itself: status %d, want 400", code)
+	}
+	if code := post(f.regular.ID.String(), dup.ID.String()); code != http.StatusOK {
+		t.Fatalf("merge: status %d, want 200", code)
+	}
+
+	var n int64
+	f.db.Model(&order.Order{}).Where("customer_id = ?", f.regular.ID.String()).Count(&n)
+	if n != 2 {
+		t.Fatalf("orders of the kept customer = %d, want 2", n)
+	}
+	var count int64
+	f.db.Model(&customer.Customer{}).Where("id = ?", dup.ID).Count(&count)
+	if count != 0 {
+		t.Fatal("merged duplicate still listed")
 	}
 }
