@@ -17,3 +17,8 @@ vendor/
 scripts/deploy.config.env
 deploy/logs/
 deploy/.build/
+
+# Firebase service-account keys (push notifications)
+secrets/
+*service-account*.json
+*firebase-adminsdk*.json

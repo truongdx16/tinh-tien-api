@@ -9,6 +9,7 @@ import (
 	"tinh-tien-api/internal/domain/feedback"
 	"tinh-tien-api/internal/domain/inventory"
 	"tinh-tien-api/internal/domain/media"
+	"tinh-tien-api/internal/domain/notification"
 	"tinh-tien-api/internal/domain/order"
 	"tinh-tien-api/internal/domain/planting"
 	"tinh-tien-api/internal/domain/product"
@@ -47,7 +48,18 @@ func All() []migrate.Migration {
 			Name: "users.phone (unique, nullable) for phone sign-in",
 			Up:   up005UserPhone,
 		},
+		{
+			ID:   "006_notifications",
+			Name: "device_tokens and notifications (push reminders)",
+			Up:   up006Notifications,
+		},
 	}
+}
+
+// up006Notifications: FCM device tokens and the notification log (RefKey
+// unique, so each reminder is sent once).
+func up006Notifications(db *gorm.DB) error {
+	return db.AutoMigrate(&notification.DeviceToken{}, &notification.Notification{})
 }
 
 // up005UserPhone adds users.phone: a second way to sign in. Nullable and

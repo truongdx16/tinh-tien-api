@@ -44,6 +44,7 @@ type MobileHandlers struct {
 	Media    *mobile.MediaMobileHandler
 	Stats    *mobile.StatsMobileHandler
 	Feedback *mobile.FeedbackMobileHandler
+	Notify   *mobile.NotificationMobileHandler
 }
 
 func NewRouter(h Handlers) http.Handler {
@@ -146,6 +147,16 @@ func NewRouter(h Handlers) http.Handler {
 			r.Route("/feedback", func(r chi.Router) {
 				r.Get("/", h.Mobile.Feedback.List)
 				r.Post("/", h.Mobile.Feedback.Create)
+			})
+
+			r.Route("/devices", func(r chi.Router) {
+				r.Post("/", h.Mobile.Notify.RegisterDevice)
+				r.Delete("/{token}", h.Mobile.Notify.UnregisterDevice)
+			})
+
+			r.Route("/notifications", func(r chi.Router) {
+				r.Get("/", h.Mobile.Notify.List)
+				r.Post("/test", h.Mobile.Notify.SendTest)
 			})
 		})
 	})

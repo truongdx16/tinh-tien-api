@@ -20,6 +20,14 @@ media:
   # URL công khai của API (dùng để tạo file_url khi upload). Production: đặt PUBLIC_BASE_URL.
   public_base_url: ""
 
+notifications:
+  # Firebase service-account key for push (or env FCM_CREDENTIALS_FILE /
+  # FCM_CREDENTIALS_BASE64). Empty: reminders are stored, not pushed.
+  fcm_credentials_file: ""
+  # Daily planting reminders go out from this hour (Asia/Ho_Chi_Minh).
+  reminder_hour: 7
+  check_interval: 10m
+
 shop:
   name: "Hộ kinh doanh nông sản"
   phone: ""

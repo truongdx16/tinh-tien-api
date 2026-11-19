@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	_ "time/tzdata" // embed tz database so Asia/Ho_Chi_Minh works on minimal images
@@ -17,6 +18,24 @@ type Config struct {
 	Shop     ShopConfig     `yaml:"shop"`
 	App      AppConfig      `yaml:"app"`
 	Media    MediaConfig    `yaml:"media"`
+	Notify   NotifyConfig   `yaml:"notifications"`
+}
+
+// NotifyConfig: push notifications (Firebase Cloud Messaging) and the daily
+// planting reminders. Without credentials, reminders are still stored and
+// listed in the app, just not pushed.
+type NotifyConfig struct {
+	// Path of the Firebase service-account JSON key (FCM_CREDENTIALS_FILE).
+	CredentialsFile string `yaml:"fcm_credentials_file"`
+	// The same key, base64-encoded (FCM_CREDENTIALS_BASE64): handier in an
+	// .env file. Used when CredentialsFile is empty.
+	CredentialsBase64 string `yaml:"fcm_credentials_base64"`
+	// Hour of the day (shop timezone) from which reminders go out (default 7).
+	ReminderHour int `yaml:"reminder_hour"`
+	// How often the scheduler checks for due reminders (default 10m).
+	CheckInterval time.Duration `yaml:"check_interval"`
+	// Disabled turns the reminder scheduler off (NOTIFY_DISABLED=true).
+	Disabled bool `yaml:"disabled"`
 }
 
 // AppConfig holds business-level settings.
@@ -123,6 +142,20 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("PUBLIC_BASE_URL"); v != "" {
 		c.Media.PublicBaseURL = v
 	}
+	if v := os.Getenv("FCM_CREDENTIALS_FILE"); v != "" {
+		c.Notify.CredentialsFile = v
+	}
+	if v := os.Getenv("FCM_CREDENTIALS_BASE64"); v != "" {
+		c.Notify.CredentialsBase64 = v
+	}
+	if v := os.Getenv("REMINDER_HOUR"); v != "" {
+		if h, err := strconv.Atoi(v); err == nil {
+			c.Notify.ReminderHour = h
+		}
+	}
+	if v := os.Getenv("NOTIFY_DISABLED"); v != "" {
+		c.Notify.Disabled = v == "1" || strings.EqualFold(v, "true")
+	}
 }
 
 func (c *Config) setDefaults() {
@@ -146,6 +179,12 @@ func (c *Config) setDefaults() {
 	}
 	if c.Media.UploadDir == "" {
 		c.Media.UploadDir = "uploads"
+	}
+	if c.Notify.ReminderHour <= 0 || c.Notify.ReminderHour > 23 {
+		c.Notify.ReminderHour = 7
+	}
+	if c.Notify.CheckInterval <= 0 {
+		c.Notify.CheckInterval = 10 * time.Minute
 	}
 	c.Media.PublicBaseURL = strings.TrimRight(c.Media.PublicBaseURL, "/")
 	if c.Media.PublicBaseURL == "" {

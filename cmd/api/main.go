@@ -40,6 +40,13 @@ func main() {
 
 	handlers := app.BuildHandlers(gormDB, cfg)
 
+	// Daily planting reminders (harvest, tasks), pushed through FCM.
+	bgCtx, stopBackground := context.WithCancel(context.Background())
+	defer stopBackground()
+	if scheduler := app.BuildReminderScheduler(gormDB, cfg); scheduler != nil {
+		go scheduler.Run(bgCtx)
+	}
+
 	router := app.NewRouter(handlers)
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr,
@@ -73,6 +80,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
+	stopBackground()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

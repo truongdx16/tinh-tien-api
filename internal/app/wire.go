@@ -1,6 +1,10 @@
 package app
 
 import (
+	"encoding/base64"
+	"log"
+	"strings"
+
 	"gorm.io/gorm"
 	"tinh-tien-api/internal/domain/auth"
 	"tinh-tien-api/internal/domain/crop"
@@ -9,6 +13,7 @@ import (
 	"tinh-tien-api/internal/domain/feedback"
 	"tinh-tien-api/internal/domain/inventory"
 	"tinh-tien-api/internal/domain/media"
+	"tinh-tien-api/internal/domain/notification"
 	"tinh-tien-api/internal/domain/order"
 	"tinh-tien-api/internal/domain/planting"
 	"tinh-tien-api/internal/domain/product"
@@ -64,6 +69,8 @@ func BuildHandlers(db *gorm.DB, cfg *config.Config) Handlers {
 	feedbackRepo := feedback.NewRepository(db)
 	feedbackSvc := feedback.NewService(feedbackRepo)
 
+	notifySvc := notification.NewService(notification.NewRepository(db), BuildPushSender(cfg))
+
 	loc := cfg.Location()
 
 	return Handlers{
@@ -87,6 +94,50 @@ func BuildHandlers(db *gorm.DB, cfg *config.Config) Handlers {
 			Media:    mobile.NewMediaMobileHandler(mediaSvc, cfg.Media.PublicBaseURL, cfg.Media.UploadDir),
 			Stats:    mobile.NewStatsMobileHandler(reportSvc, customerSvc, loc),
 			Feedback: mobile.NewFeedbackMobileHandler(feedbackSvc),
+			Notify:   mobile.NewNotificationMobileHandler(notifySvc),
 		},
+	}
+}
+
+// BuildPushSender returns the FCM sender when Firebase credentials are
+// configured; otherwise a no-op sender (reminders stored, not pushed).
+func BuildPushSender(cfg *config.Config) notification.Sender {
+	var (
+		sa  *notification.ServiceAccount
+		err error
+	)
+	switch {
+	case cfg.Notify.CredentialsFile != "":
+		sa, err = notification.LoadServiceAccountFile(cfg.Notify.CredentialsFile)
+	case cfg.Notify.CredentialsBase64 != "":
+		var raw []byte
+		raw, err = base64.StdEncoding.DecodeString(strings.TrimSpace(cfg.Notify.CredentialsBase64))
+		if err == nil {
+			sa, err = notification.ParseServiceAccount(raw)
+		}
+	default:
+		log.Printf("push notifications disabled: set FCM_CREDENTIALS_FILE or FCM_CREDENTIALS_BASE64")
+		return notification.NoopSender{}
+	}
+	if err != nil {
+		log.Printf("push notifications disabled: %v", err)
+		return notification.NoopSender{}
+	}
+	log.Printf("push notifications enabled (Firebase project %s)", sa.ProjectID)
+	return notification.NewFCMSender(sa)
+}
+
+// BuildReminderScheduler returns the daily planting reminder job, or nil
+// when disabled in the config.
+func BuildReminderScheduler(db *gorm.DB, cfg *config.Config) *notification.Scheduler {
+	if cfg.Notify.Disabled {
+		return nil
+	}
+	return &notification.Scheduler{
+		Service:   notification.NewService(notification.NewRepository(db), BuildPushSender(cfg)),
+		Schedules: planting.NewRepository(db),
+		Location:  cfg.Location(),
+		Hour:      cfg.Notify.ReminderHour,
+		Interval:  cfg.Notify.CheckInterval,
 	}
 }
