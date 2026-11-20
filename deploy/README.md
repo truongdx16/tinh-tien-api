@@ -101,6 +101,18 @@ fvm flutter build ipa --release        # iOS
 Bản debug vẫn gọi API local; muốn debug với API production: chọn cấu hình **"tinh_tien (production API)"** trong VS Code, hoặc
 `fvm flutter run --dart-define=API_BASE_URL=https://7b.truongdx.dev/api/v1`.
 
+## 4b. Bản web (cùng domain với API)
+
+App Flutter bản web chạy ở `https://7b.truongdx.dev/`, cùng nguồn gốc với API nên không cần CORS. Nginx trả file tĩnh ở `/var/www/tinh-tien-web`; `/api`, `/v1`, `/docs`, `/healthz`, `/uploads` vẫn đi tới API.
+
+```bash
+./scripts/deploy.sh setup   # một lần (và mỗi khi đổi deploy/nginx): cài lại site nginx
+./scripts/deploy.sh web     # build Flutter web (../tinh_tien, đổi bằng WEB_APP_DIR) + upload
+```
+
+- In hoá đơn trên web đi qua hộp thoại in của trình duyệt (trình duyệt không mở được cổng TCP 9100). Chọn khổ giấy 58/80 mm ở Cài đặt › Máy in.
+- Không có trên web: thông báo đẩy, lắc máy mở báo cáo, tự cập nhật APK, tìm máy in trong mạng.
+
 ## 5. Bảo mật đã có
 
 - API chỉ nghe `127.0.0.1:2170`; chạy bằng user `tinhtien` (không phải root), systemd chặn ghi ngoài `uploads/`.

@@ -52,6 +52,7 @@ func NewRouter(h Handlers) http.Handler {
 	r := chi.NewRouter()
 	r.NotFound(NotFoundJSON)
 	r.MethodNotAllowed(MethodNotAllowedJSON)
+	r.Use(CORS)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)

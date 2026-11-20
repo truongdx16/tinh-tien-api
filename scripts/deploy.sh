@@ -12,6 +12,7 @@
 #   ./scripts/deploy.sh            # deploy (build, upload, restart, check)
 #   ./scripts/deploy.sh seed       # once: create the owner account
 #   ./scripts/deploy.sh rollback   # back to the previous release
+#   ./scripts/deploy.sh web        # build the Flutter web app and publish it on the same domain
 #   ./scripts/deploy.sh status     # service, release and health
 #   ./scripts/deploy.sh logs       # follow the API log
 #
@@ -40,7 +41,7 @@ trap 'echo -e "${RED}[ERROR]${NC} Step failed (line $LINENO, exit $?) — see $L
 
 # ─── Config ───────────────────────────────────────────────
 CONFIG_VARS=(VPS_HOST VPS_USER VPS_PORT DOMAIN CERTBOT_EMAIL VPS_PATH SERVICE_NAME APP_USER
-  API_PORT TARGET_ARCH RUN_TESTS KEEP_RELEASES UPLOAD_ENV DRY_RUN FORCE_JWT_CHANGE BACKUP_DB)
+  API_PORT TARGET_ARCH RUN_TESTS KEEP_RELEASES UPLOAD_ENV DRY_RUN FORCE_JWT_CHANGE BACKUP_DB WEB_PATH WEB_APP_DIR)
 
 load_config() {
   # Inline values (VAR=x ./deploy.sh) win over the config file.
@@ -71,6 +72,8 @@ load_config() {
   DRY_RUN="${DRY_RUN:-false}"
   FORCE_JWT_CHANGE="${FORCE_JWT_CHANGE:-false}"
   BACKUP_DB="${BACKUP_DB:-true}"
+  WEB_PATH="${WEB_PATH:-/var/www/tinh-tien-web}"
+  WEB_APP_DIR="${WEB_APP_DIR:-$ROOT/../tinh_tien}"
 
   [[ -n "$VPS_HOST" && "$VPS_HOST" != "your-vps-ip" ]] ||
     die "Set VPS_HOST in $CONFIG_FILE (cp scripts/deploy.config.example.env scripts/deploy.config.env)"
@@ -348,6 +351,38 @@ REMOTE
   fi
 }
 
+# ─── web: Flutter web app on the same domain as the API ───
+# Built locally, rsynced to $WEB_PATH; nginx (see deploy/nginx) serves it at /
+# and keeps /api, /v1, /docs, /healthz on the Go API. Same origin = no CORS.
+cmd_web() {
+  require_cmd rsync
+  [[ -f "$WEB_APP_DIR/pubspec.yaml" ]] || die "Flutter app not found in $WEB_APP_DIR (set WEB_APP_DIR)"
+  check_ssh
+  local flutter=(flutter)
+  command -v fvm >/dev/null 2>&1 && [[ -d "$WEB_APP_DIR/.fvm" || -f "$WEB_APP_DIR/.fvmrc" ]] && flutter=(fvm flutter)
+  log "Building the web app (${flutter[*]} build web --release)"
+  (cd "$WEB_APP_DIR" && "${flutter[@]}" build web --release \
+    --dart-define="API_BASE_URL=https://$DOMAIN/api/v1" >>"$LOG_FILE" 2>&1) || die "Web build failed — see $LOG_FILE"
+  [[ -f "$WEB_APP_DIR/build/web/index.html" ]] || die "No build/web/index.html after the build"
+  success "Built web app ($(du -sh "$WEB_APP_DIR/build/web" | cut -f1))"
+
+  remote_root "$WEB_PATH" <<'REMOTE'
+set -euo pipefail
+mkdir -p "$1" && chmod 755 "$1"
+REMOTE
+  log "Uploading to $WEB_PATH"
+  local flags=(-az --delete)
+  [[ "$DRY_RUN" == "true" ]] && flags+=(--dry-run -v)
+  rsync "${flags[@]}" -e "ssh -p $VPS_PORT -o BatchMode=yes" \
+    "$WEB_APP_DIR/build/web/" "$VPS_USER@$VPS_HOST:$WEB_PATH/"
+  # The nginx site must route / to the web root: re-run `setup` once if it was installed before.
+  if curl -fsS -m 10 "https://$DOMAIN/" 2>/dev/null | grep -qi "<title>"; then
+    success "https://$DOMAIN/ serves the web app"
+  else
+    warn "https://$DOMAIN/ does not return the web app yet — run ./scripts/deploy.sh setup to install the new nginx site"
+  fi
+}
+
 # ─── other commands ───────────────────────────────────────
 cmd_rollback() {
   check_ssh
@@ -411,11 +446,12 @@ main() {
     db-init) cmd_db_init ;;
     deploy) cmd_deploy ;;
     seed) cmd_seed ;;
+    web) cmd_web ;;
     rollback) cmd_rollback ;;
     status) cmd_status ;;
     logs) cmd_logs ;;
     -h | --help | help) sed -n '2,20p' "$0" ;;
-    *) die "Unknown command: $cmd (setup | db-init | deploy | seed | rollback | status | logs)" ;;
+    *) die "Unknown command: $cmd (setup | db-init | deploy | seed | web | rollback | status | logs)" ;;
   esac
 }
 

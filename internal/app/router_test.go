@@ -49,3 +49,21 @@ func TestHealthzUsesUnifiedResponse(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
+
+func TestCORSPreflight(t *testing.T) {
+	h := app.NewRouter(app.Handlers{})
+	req := httptest.NewRequest(http.MethodOptions, "/mobile/orders", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d, want 204", rec.Code)
+	}
+	if rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("missing allow-origin header")
+	}
+	if rec.Header().Get("Access-Control-Allow-Headers") == "" {
+		t.Fatalf("missing allow-headers header")
+	}
+}
